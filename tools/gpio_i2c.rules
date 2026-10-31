@@ -1,0 +1,7 @@
+# Give group "gpio" write access to GPIO char devices (libgpiod userspace
+# apps, e.g. the SSD1317 RES line). Applies at every gpiochip add.
+ACTION=="add", KERNEL=="gpiochip[0-9]*", RUN+="/bin/chgrp -f gpio /dev/%k", RUN+="/bin/chmod -f g+rw /dev/%k"
+# Belt and braces for i2c-dev (mainline udev already uses root:i2c 660).
+ACTION=="add", SUBSYSTEM=="i2c-dev", RUN+="/bin/chgrp -f i2c /dev/%k", RUN+="/bin/chmod -f g+rw /dev/%k"
+# spidev (ILI9163C on /dev/spidev1.0): group "spi" (dev is a member).
+ACTION=="add", SUBSYSTEM=="spidev", RUN+="/bin/chgrp -f spi /dev/%k", RUN+="/bin/chmod -f g+rw /dev/%k"

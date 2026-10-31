@@ -4,11 +4,10 @@
 # name orangepizero.local, so the numeric IP lives in the config).
 set -u
 
-SUBNET=${1:-}
-if [ -z "$SUBNET" ]; then
-	# derive from the default route interface address
-	SUBNET=$(ip -4 route show default | awk '{print $3}' | cut -d. -f1-3)
-fi
+SUBNET=${1:-${OPZ_SUBNET:-192.168.5}}
+# NOTE: the WSL2 default route points at the NAT gateway (172.21.x.x),
+# not the LAN - deriving the subnet from it finds nothing. Pass the LAN
+# prefix as $1 (or OPZ_SUBNET) if your LAN differs from 192.168.5.
 if [ -z "$SUBNET" ]; then
 	echo "cannot determine subnet, pass one: $0 192.168.5" >&2
 	exit 1
