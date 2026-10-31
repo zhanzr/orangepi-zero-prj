@@ -14,6 +14,8 @@ subdirectory is one self-contained project with its own `Makefile` and
 | `st7789_md130_240x240/` | ST7789V 1.3" 240x240 SPI TFT on CON4 (hw SPI1 mode 3 + DC), ported from rk3506-dev - **broken on this board, see `docs/st7789_md130_issue.md`** |
 | `st7789_md169_240x280_spi/` | ST7789V 1.69" 240x280 SPI TFT on CON4 (hw SPI1 mode 0 + DC), ported from rk3506-dev - **verified working**; its success isolated the MD130 failure to mode 3 |
 | `rec_wav/` | Audio recorder: up to 30 s WAV, `q` stops early; MP3/OGG/FLAC via on-board encoders. H3 codec mic = CON5 10/11/12 |
+| `netbench/` | TCP throughput benchmark, both interfaces both directions (`make bench`); ethernet 77/63 Mbit/s, wifi 1.5/6.5 Mbit/s (see README) |
+| `uvc_to_st7789_md169_240x280_spi/` | UVC camera viewer on the MD169 panel: auto-detect, `uh-N` host number + fps band, `UVC NA` without camera; MJPEG via vendored libjpeg |
 
 ## Common workflow (per project, from the project directory)
 
