@@ -44,8 +44,45 @@
 #define PANEL_H 280
 #define FPS_BAND 24
 
+static uint16_t panel_fb[PANEL_W * PANEL_H];
+
 /* camera capture request: format+size auto-selected per camera
    (YUYV preferred raw, else MJPEG via libjpeg; largest fit <= 640x480) */
+
+/* ---- OSD text rendering straight into the panel framebuffer ---- */
+
+/* transparent variant: only fg pixels are written - video shows through */
+static void fb_string_t(const char *s, int x, int y, uint16_t fg)
+{
+    while (*s)
+    {
+        uint8_t c = *s;
+
+        if (c < 0x20 || c > 0x7E)
+            c = '?';
+        int idx = c - 0x20;
+
+        for (int row = 0; row < 16; row++)
+        {
+            uint8_t bits = asc2_1608[idx * 16 + row];
+            int py = y + row;
+
+            if (py < 0 || py >= PANEL_H)
+                continue;
+            for (int col = 0; col < 8; col++)
+            {
+                int px = x + col;
+
+                if (px < 0 || px >= PANEL_W)
+                    continue;
+                if ((bits >> col) & 1)
+                    panel_fb[py * PANEL_W + px] = fg;
+            }
+        }
+        x += 8;
+        s++;
+    }
+}
 
 static volatile sig_atomic_t quit_req;
 
@@ -351,8 +388,8 @@ static void build_gamma_lut(void)
 static inline uint16_t ycc_to_rgb565(int Yv, int Cbv, int Crv)
 {
     int y = gamma_lut[Yv];
-    int cb = 128 + (Cbv - 128) * sat_pct / 100;
-    int cr = 128 + (Crv - 128) * sat_pct / 100;
+    int cb = (Cbv - 128) * sat_pct / 100;   /* centered! */
+    int cr = (Crv - 128) * sat_pct / 100;
 
     if (cam_range_limited)
         y -= 16;
@@ -409,7 +446,6 @@ static uint8_t *decode_mjpeg(const uint8_t *in, size_t len, int *w, int *h)
 }
 
 /* panel framebuffer + precomputed rotation/scale map */
-static uint16_t panel_fb[PANEL_W * PANEL_H];
 static int16_t *src_map;   /* per panel pixel: [sx_cam, sy_cam] */
 
 static void build_src_map(int cw, int ch)
@@ -587,10 +623,6 @@ int main(int argc, char **argv)
     char band[40];
     snprintf(band, sizeof(band), "uh-%d", uh < 0 ? 0 : uh);
     LCD_Clear();
-    LCD_SetColor(LCD_WHITE);
-    LCD_SetBackColor(LCD_BLACK);
-    LCD_FillRect(0, PANEL_H - FPS_BAND, PANEL_W, FPS_BAND);
-    LCD_DisplayString(4, PANEL_H - FPS_BAND + 4, band);
 
     unsigned frames = 0, fps = 0;
     struct timespec ts;
@@ -641,9 +673,9 @@ int main(int argc, char **argv)
                     build_src_map(rgb_w, rgb_h);
                 }
                 convert_frame(ycbcr, rgb_w);
-                blit();
-                frames++;
             }
+            else
+                continue;
         }
         else
         {
@@ -654,25 +686,38 @@ int main(int argc, char **argv)
                 build_src_map(rgb_w, rgb_h);
             }
             convert_yuyv_frame(bufs[b.index].start, cam_w);
-            blit();
-            frames++;
             xioctl(cam_fd, VIDIOC_QBUF, &b);   /* re-queue! */
         }
+
+        /* OSD: transparent strings over the live frame, every frame */
+        fb_string_t(band, 4, PANEL_H - FPS_BAND + 4, LCD_WHITE);
+        blit();
+        frames++;
 
         clock_gettime(CLOCK_MONOTONIC, &ts);
         double now = ts.tv_sec + ts.tv_nsec / 1e9;
         if (now - t_end >= 1.0)
         {
+            /* framebuffer average R/G/B - green-balance diagnostic */
+            unsigned long rs = 0, gs = 0, bs = 0;
+
+            for (int i = 0; i < PANEL_W * PANEL_H; i++)
+            {
+                uint16_t v = panel_fb[i];
+
+                rs += (v >> 11) & 0x1F;
+                gs += (v >> 5) & 0x3F;
+                bs += v & 0x1F;
+            }
+            unsigned npix = PANEL_W * PANEL_H;
+
             fps = frames;
             frames = 0;
             t_end = now;
             snprintf(band, sizeof(band), "uh-%d  %u fps",
                      uh < 0 ? 0 : uh, fps);
-            LCD_SetColor(LCD_WHITE);
-            LCD_SetBackColor(LCD_BLACK);
-            LCD_FillRect(0, PANEL_H - FPS_BAND, PANEL_W, FPS_BAND);
-            LCD_DisplayString(4, PANEL_H - FPS_BAND + 4, band);
-            printf("fps: %u\n", fps);
+            printf("fps: %u   fb avg R=%lu G=%lu B=%lu (5-bit/6-bit/5-bit)\n",
+                   fps, rs / npix, gs / npix, bs / npix);
         }
     }
 

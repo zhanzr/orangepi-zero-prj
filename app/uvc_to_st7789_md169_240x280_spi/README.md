@@ -22,6 +22,16 @@ controller clamps to its ~37.5 MHz ceiling).
   blits over spidev
 - corrupt/truncated MJPEG frames are skipped (non-fatal libjpeg error
   handler); the panel is the fps bottleneck (~45 ms per full blit)
+
+## Color pipeline (fixed 2026-11-01)
+
+YUYV/MJPEG chroma -> **BT.601 limited-range** -> RGB565, chroma properly
+centered (an early version kept the +128 offset in the formula -
+permanent magenta-white veil on every camera). Tunables: `-G` luma
+gamma exponent %, `-S` chroma saturation %, `-R lim|full` source range
+(defaults 100/100/lim = neutral-correct). The fps line also prints the
+framebuffer average R/G/B as a color-balance telemetry. Residual color
+abnormality under investigation (panel gamma registers vs camera WB).
 - known cameras: a no-name "Web Camera" (32e6:9228, usbhost 1) is
   **MJPEG-only 160x120@30** - its entire capability list, no RGB/YUV
   modes at any size (confirmed on Linux ENUM_FMT and the USB
