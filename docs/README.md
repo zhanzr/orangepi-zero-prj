@@ -2,8 +2,15 @@
 
 Setup and design notes for the Orange Pi Zero project.
 
+| File | Content |
+|---|---|
+| `con4-header.md` | CON4 26-pin header: full pinout with SoC pin names (schematic + vendor table), I2C/SPI/GPIO usage notes, free pins, permission setup |
+| `st7789_md130_issue.md` | MD130 (240x240) stuck-after-first-frame issue: symptoms, probe results, everything ruled out, remaining suspects, isolation plan |
+
 Vendor manuals (PDFs, schematics) are kept in
 `D:\board_database\orangepi-zero` and are not part of this repository.
+The connector tables from `D:\board_database\orangepi-zero\README.md`
+are mirrored (expanded) in `con4-header.md`.
 
 | Vendor file | Content |
 |---|---|
