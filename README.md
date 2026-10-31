@@ -67,23 +67,47 @@ needed.
 | Ethernet | 100M, interface `end0` (DHCP, currently 192.168.5.223) |
 | WiFi | interface `wld1` (currently 192.168.5.218) |
 | LEDs | `orangepi:green:pwr` (power), `orangepi:red:status` - both start with trigger `none`, free for apps |
-| Temperature | `/sys/class/thermal/thermal_zone0` (`cpu_thermal`, millidegrees C) |
-| GPIO/I2C/SPI | via 26-pin header; `gpioinfo`/libgpiod, i2c-dev, spidev (some buses need DT overlays, see `armbian-config` -> System -> Hardware) |
+| Temperature | `/sys/class/thermal/thermal_zone0` (`cpu_thermal`, hwmon driver name `cpu_thermal` = Allwinner THS **die sensor**, millidegrees C) |
+| GPIO/I2C/SPI | via CON4 26-pin header - see `docs/con4-header.md` (verified pinout, I2C0 via overlay) |
 
 LED control: `echo heartbeat > /sys/class/leds/orangepi:red:status/trigger`
-or `echo 1 > .../brightness` (root-owned; the `dev` user has passwordless
-sudo? no - use `sudo` with the `pocket` password).
+or `echo 1 > .../brightness` - works as the `dev` user without root: a
+udev rule (`tools/leds.rules`, installed once by
+`tools/setup_led_group.sh`) delegates `brightness`/`trigger` writes to
+group `leds` (`dev` is a member; `max_brightness` is 1). Without the rule
+the nodes are root-owned 0644 - use `sudo` as fallback.
+
+## ADC (verified: none)
+
+The H2+ SoC has **no general-purpose ADC** and the Armbian kernel has no
+IIO subsystem at all (`/sys/bus/iio/devices/` does not exist; nothing
+under hwmon except the THS die sensor). The only analog-ish input is the
+internal die temperature above - not usable for external signals. For
+real analog inputs, add an external I2C/SPI ADC (26-pin header has I2C/SPI,
+after enabling the overlays).
 
 ## Applications
 
 | App | What it drives | Notes |
 |---|---|---|
 | `app/hello` | - | toolchain smoke test |
+| `app/blink_hello` | both LEDs (green pwr / red status) + die temp | alternate blink, restores triggers on exit; runs without root (LED group delegation) |
+| `app/coremark` | - | EEMBC CoreMark 1.0, ARM + Thumb-2, results in its README |
+| `app/ssd1317_md066_64x48_iic` | SSD1317 64x48 I2C OLED on CON4.3/5 + RES PA6 | ported from rk3506-dev; runs without root |
+| `app/ili9163c_md144_128x128_spi` | ILI9163C 1.44" 128x128 SPI LCD on CON4 | hw SPI1 (`/dev/spidev1.0`), RES PA6 (CON4.7, shared - one module at a time); runs without root |
+| `app/st7789_md130_240x240` | ST7789V 1.3" 240x240 SPI TFT on CON4 | hw SPI1 mode 3, DC PA1, RES PA6, BLK 3.3V full-on; **stuck after first frame - mode 3 on sunxi SPI1 implicated, `docs/st7789_md130_issue.md`** |
+| `app/st7789_md169_240x280_spi` | ST7789V 1.69" 240x280 SPI TFT on CON4 | hw SPI1 mode 0, DC PA1, RES PA6, V50/BLK 3.3V; **verified working** - proved the MD130 issue is mode-3-specific |
 
 ## References
 
 - H2+ datasheet: `D:\board_database\orangepi-zero\Allwinner_H2+_Datasheet_V1.2.pdf`
 - Schematic: `D:\board_database\orangepi-zero\OrangePi_zero_schematic_v1.5.pdf`
+  - **Erratum (verified)**: sheet 4 "GPIO ASSIGNMENT" marks
+    `PA15 = STATUS-LED`, `PA16 = MUTE`, `PA17 = SPDIF-OUT`. The running
+    system disagrees: the red status LED is on **PA17** (gpio-17,
+    `/sys/kernel/debug/gpio`, matches the vendor manual LED table and the
+    mainline sun8i-h3-orangepi-zero DT), and PA15 is a free SPI1_MOSI.
+    Do not trust sheet 4's PA15/PA16/PA17 rows.
 - User manual (CN): `D:\board_database\orangepi-zero\OrangePi_Zero_H2+_用户手册_v3.2.pdf`
 - Armbian docs: https://docs.armbian.com - `orangepi-build` is only needed
   for rebuilding OS images/kernels, not for applications

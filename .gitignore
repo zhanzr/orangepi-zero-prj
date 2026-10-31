@@ -7,4 +7,13 @@
 *.swp
 *~
 /app/hello/hello
+/app/blink_hello/blink_hello
+/app/coremark/coremark-arm
+/app/coremark/coremark-thumb
+/app/ssd1317_md066_64x48_iic/ssd1317_demo
+/app/ssd1317_md066_64x48_iic/lcm_logo
+/app/ili9163c_md144_128x128_spi/ili9163c_demo
+/app/st7789_md130_240x240/st7789_demo
+/app/st7789_md130_240x240/st7789_probe
+/app/st7789_md169_240x280_spi/st7789_demo
 Thumbs.db
