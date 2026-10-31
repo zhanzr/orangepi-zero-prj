@@ -19,3 +19,7 @@
 Thumbs.db
 /app/rec_wav/rec_wav
 /app/rec_wav/vendor/*
+/app/uvc_to_st7789_md169_240x280_spi/uvc_to_lcd
+/app/uvc_to_st7789_md169_240x280_spi/vendor/*
+/app/netbench/netbench
+/app/netbench/netbench-host
