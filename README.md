@@ -1,0 +1,89 @@
+# opz-dev Software Repository
+
+Development repository for the Orange Pi Zero (Allwinner H2+, quad
+Cortex-A7 @ 1.296 GHz, 512 MiB DDR3) running
+**Armbian community 26.11.0-trunk.108** (Ubuntu "resolute" base, kernel
+`6.18.57-current-sunxi`, armv7l hard-float). Rootfs on a 7.5 GB TF card,
+zram swap. No on-board display output - everything happens over the
+network / serial.
+
+![Orange Pi Zero board](board_images/board_0.png)
+
+Connector close-ups live in [board_images/](board_images/).
+
+## Board connection (verified working)
+
+- Windows: `ssh opz` - alias in `C:\Users\user1\.ssh\config`
+  (`orangepizero.local`, user `dev`, key `id_rsa_pocket`). mDNS
+  resolution works on Windows, passwordless login is set up.
+- WSL: same alias `opz` in `~/.ssh/config`, but with the **numeric IP**
+  (`192.168.5.223`, the `end0` Ethernet address) - WSL2 does not resolve
+  mDNS `.local` names. The private key is copied to `~/.ssh/id_rsa_pocket`
+  (0600); `/mnt/c/...` copies are rejected by Linux ssh (permissions).
+  The board also holds a WiFi address (`wld1`, seen `192.168.5.218`) -
+  if the DHCP lease moves, run `tools/find_board.sh`.
+- Login: `dev` / `pocket` (the key is installed, so passwords are only
+  needed for `sudo` on the board).
+- Serial console: debug header, 115200 8N1 (COM6 or COM7 on this PC,
+  check with `[System.IO.Ports.SerialPort]::GetPortNames()`) - rescue
+  access when the network is gone.
+
+Vendor docs (H2+ datasheet, schematic, user manual) live in
+`D:\board_database\orangepi-zero` and are **not** part of this repo
+(see `docs/README.md`).
+
+## Toolchain (verified end-to-end)
+
+Distro cross compiler from the WSL Ubuntu archive - no vendor SDK needed
+because the board runs a normal Ubuntu userland (glibc):
+
+```
+sudo apt install gcc-arm-linux-gnueabihf    # GCC 15.2.0, armv7-a hard-float
+```
+
+Installed in WSL as `arm-linux-gnueabihf-gcc`; `env.sh` only exports the
+prefix and the ssh alias. The board also has native `gcc`/`make`/`python3`
+(`build-remote` target in each app's Makefile uses it).
+
+Cross build + fast deploy loop (from `app/<project>/`):
+
+```
+make push    # cross-compile and scp the binary
+make run     # execute it on the board
+make deploy  # push sources too (for remote builds)
+```
+
+Debugging: printf so far; `gdbserver` can be installed on the board via
+apt (`sudo apt install gdb-multiarch` on WSL + `gdbserver` on board) if
+needed.
+
+## Board facts (verified)
+
+| Item | Value |
+|---|---|
+| SoC | Allwinner H2+ (sun8i), 4x Cortex-A7, max freq 1296 MHz |
+| RAM | 484 MiB visible (512 MiB part), zram swap |
+| Storage | TF card rootfs (`mmcblk0`), no eMMC |
+| Ethernet | 100M, interface `end0` (DHCP, currently 192.168.5.223) |
+| WiFi | interface `wld1` (currently 192.168.5.218) |
+| LEDs | `orangepi:green:pwr` (power), `orangepi:red:status` - both start with trigger `none`, free for apps |
+| Temperature | `/sys/class/thermal/thermal_zone0` (`cpu_thermal`, millidegrees C) |
+| GPIO/I2C/SPI | via 26-pin header; `gpioinfo`/libgpiod, i2c-dev, spidev (some buses need DT overlays, see `armbian-config` -> System -> Hardware) |
+
+LED control: `echo heartbeat > /sys/class/leds/orangepi:red:status/trigger`
+or `echo 1 > .../brightness` (root-owned; the `dev` user has passwordless
+sudo? no - use `sudo` with the `pocket` password).
+
+## Applications
+
+| App | What it drives | Notes |
+|---|---|---|
+| `app/hello` | - | toolchain smoke test |
+
+## References
+
+- H2+ datasheet: `D:\board_database\orangepi-zero\Allwinner_H2+_Datasheet_V1.2.pdf`
+- Schematic: `D:\board_database\orangepi-zero\OrangePi_zero_schematic_v1.5.pdf`
+- User manual (CN): `D:\board_database\orangepi-zero\OrangePi_Zero_H2+_用户手册_v3.2.pdf`
+- Armbian docs: https://docs.armbian.com - `orangepi-build` is only needed
+  for rebuilding OS images/kernels, not for applications
