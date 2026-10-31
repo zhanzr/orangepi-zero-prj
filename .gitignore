@@ -17,3 +17,5 @@
 /app/st7789_md130_240x240/st7789_probe
 /app/st7789_md169_240x280_spi/st7789_demo
 Thumbs.db
+/app/rec_wav/rec_wav
+/app/rec_wav/vendor/*

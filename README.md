@@ -97,6 +97,7 @@ after enabling the overlays).
 | `app/ili9163c_md144_128x128_spi` | ILI9163C 1.44" 128x128 SPI LCD on CON4 | hw SPI1 (`/dev/spidev1.0`), RES PA6 (CON4.7, shared - one module at a time); runs without root |
 | `app/st7789_md130_240x240` | ST7789V 1.3" 240x240 SPI TFT on CON4 | hw SPI1 mode 3, DC PA1, RES PA6, BLK 3.3V full-on; **stuck after first frame - mode 3 on sunxi SPI1 implicated, `docs/st7789_md130_issue.md`** |
 | `app/st7789_md169_240x280_spi` | ST7789V 1.69" 240x280 SPI TFT on CON4 | hw SPI1 mode 0, DC PA1, RES PA6, V50/BLK 3.3V; **verified working** - proved the MD130 issue is mode-3-specific |
+| `app/rec_wav` | audio recorder | up to 30 s WAV, `q` early-stop, MP3/OGG/FLAC via on-board encoders; H3 codec (mic on CON5), PulseAudio disabled |
 
 ## References
 
