@@ -1,0 +1,694 @@
+/*
+  uvc_to_lcd - stream a UVC camera to the ST7789V 1.69" 240x280 (MD169)
+  SPI panel on the Orange Pi Zero.
+
+  - auto-detects the first UVC capture device under /dev/video*
+  - shows the USB host controller number ("uh-N", derived from the
+    controller base address in the device's sysfs path:
+    1c19000=uh-0(OTG) 1c1b400=uh-1 1c1c400=uh-2 1c1d400=uh-3)
+  - captures YUYV via V4L2 MMAP streaming, converts to RGB565,
+    rotates 90 degrees and scales to the 240x280 panel (letterboxed)
+  - fps + "uh-N" shown in the bottom band
+  - no camera found: shows "UVC NA" and exits
+
+  Panel transport identical to app/st7789_md169_240x280_spi
+  (hw SPI1, mode 0, DC PA1, RES PA6; SPI clock requested at 100 MHz -
+  the controller clamps to its ~37.5 MHz ceiling, the practical raster
+  rate is ~23 Mbit/s).
+*/
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+/* stdio.h must precede jpeglib.h (FILE in the API) */
+#include <jpeglib.h>
+#include <math.h>
+#include <linux/videodev2.h>
+
+#include "lcd.h"
+#include "ref/lcd_font_1608.h"
+#include "spi_hw.h"
+
+#define PANEL_W 240
+#define PANEL_H 280
+#define FPS_BAND 24
+
+/* camera capture request: format+size auto-selected per camera
+   (YUYV preferred raw, else MJPEG via libjpeg; largest fit <= 640x480) */
+
+static volatile sig_atomic_t quit_req;
+
+static void on_signal(int sig)
+{
+    (void)sig;
+    quit_req = 1;
+}
+
+/* ---------------- camera discovery ---------------- */
+
+/* map the controller base (from the sysfs path) to a host index */
+static int host_number(const char *sys_path)
+{
+    if (strstr(sys_path, "1c19000")) return 0; /* OTG */
+    if (strstr(sys_path, "1c1b400") || strstr(sys_path, "1c1b000")) return 1;
+    if (strstr(sys_path, "1c1c400") || strstr(sys_path, "1c1c000")) return 2;
+    if (strstr(sys_path, "1c1d400") || strstr(sys_path, "1c1d000")) return 3;
+    return -1;
+}
+
+/* returns malloc'd /dev/videoN path + sets *uh to the host number,
+   NULL if no UVC capture device exists */
+static char *find_uvc(int *uh)
+{
+    DIR *d = opendir("/sys/class/video4linux");
+    struct dirent *e;
+    char *found = NULL;
+
+    if (!d)
+        return NULL;
+
+    while ((e = readdir(d)) != NULL)
+    {
+        char dev_path[300], link_target[400], sys_path[400];
+        int fd;
+        struct v4l2_capability cap;
+
+        if (strncmp(e->d_name, "video", 5) != 0)
+            continue;
+
+        snprintf(dev_path, sizeof(dev_path), "/dev/%s", e->d_name);
+        fd = open(dev_path, O_RDWR);
+        if (fd < 0)
+            continue;
+
+        memset(&cap, 0, sizeof(cap));
+        if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0 &&
+            (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) &&
+            (cap.capabilities & V4L2_CAP_DEVICE_CAPS ?
+             (cap.device_caps & V4L2_CAP_VIDEO_CAPTURE) : 1) &&
+            strcmp((char *)cap.driver, "uvcvideo") == 0)
+        {
+        snprintf(link_target, sizeof(link_target),
+                 "/sys/class/video4linux/%s/device", e->d_name);
+        {
+            /* the raw symlink target is relative to the videoN/ dir -
+               canonicalize so the controller base address is visible */
+            char raw[300], joined[600], resolved[4096];
+
+            ssize_t n = readlink(link_target, raw, sizeof(raw) - 1);
+            if (n > 0)
+            {
+                raw[n] = '\0';
+                snprintf(joined, sizeof(joined),
+                         "/sys/class/video4linux/%s/%s", e->d_name, raw);
+                if (realpath(joined, resolved))
+                    strcpy(sys_path, resolved);
+                else
+                    strcpy(sys_path, joined);
+            }
+            else
+                strcpy(sys_path, "");
+        }
+
+            *uh = host_number(sys_path);
+            found = strdup(dev_path);
+            close(fd);
+            break;
+        }
+        close(fd);
+    }
+    closedir(d);
+    return found;
+}
+
+/* ---------------- V4L2 helpers ---------------- */
+
+static int xioctl(int fd, unsigned long req, void *arg)
+{
+    int r;
+
+    do
+        r = ioctl(fd, req, arg);
+    while (r < 0 && errno == EINTR);
+    return r;
+}
+
+struct cam_buf {
+    void *start;
+    size_t len;
+};
+
+/* enumerate the camera's formats/sizes; prefer YUYV (raw, no decode),
+   then MJPEG; pick the largest size that fits 640x480, else the largest */
+static int pick_format(int fd, uint32_t *pixelformat, int *w, int *h)
+{
+    struct v4l2_fmtdesc f;
+    long best_score = -1;
+    uint32_t best_fmt = 0;
+    int best_w = 0, best_h = 0;
+
+    memset(&f, 0, sizeof(f));
+    f.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    while (xioctl(fd, VIDIOC_ENUM_FMT, &f) == 0)
+    {
+        int is_yuyv = f.pixelformat == V4L2_PIX_FMT_YUYV;
+        int is_mjpeg = f.pixelformat == V4L2_PIX_FMT_MJPEG;
+        struct v4l2_frmsizeenum fs;
+
+        if (is_yuyv || is_mjpeg)
+        {
+            memset(&fs, 0, sizeof(fs));
+            fs.pixel_format = f.pixelformat;
+            while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &fs) == 0)
+            {
+                if (fs.type == V4L2_FRMSIZE_TYPE_DISCRETE)
+                {
+                    long area = (long)fs.discrete.width *
+                                fs.discrete.height;
+                    long score = (area <= 640L * 480 ? 0x40000000L : 0) +
+                                 (is_yuyv ? 0x20000000L : 0) + area;
+
+                    if (score > best_score)
+                    {
+                        best_score = score;
+                        best_fmt = f.pixelformat;
+                        best_w = fs.discrete.width;
+                        best_h = fs.discrete.height;
+                    }
+                }
+                fs.index++;
+            }
+        }
+        f.index++;
+    }
+    if (best_score < 0)
+        return -1;
+    *pixelformat = best_fmt;
+    *w = best_w;
+    *h = best_h;
+    return 0;
+}
+
+static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
+                    struct cam_buf **bufs_out, int *nbufs_out, int *cam_fd)
+{
+    int fd = open(dev, O_RDWR);
+    struct v4l2_format fmt;
+    struct v4l2_requestbuffers req;
+    uint32_t pixelformat;
+    int cw, ch;
+
+    if (fd < 0)
+        return -1;
+    if (w) *w = 0;
+    if (h) *h = 0;
+    if (mjpeg) *mjpeg = 0;
+
+    if (pick_format(fd, &pixelformat, &cw, &ch) < 0)
+    {
+        fprintf(stderr, "uvc: no YUYV/MJPEG format on the camera\n");
+        close(fd);
+        return -1;
+    }
+
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.width = cw;
+    fmt.fmt.pix.height = ch;
+    fmt.fmt.pix.pixelformat = pixelformat;
+    fmt.fmt.pix.field = V4L2_FIELD_ANY;
+    if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
+        fmt.fmt.pix.pixelformat != pixelformat)
+    {
+        fprintf(stderr, "uvc: S_FMT rejected the picked format\n");
+        close(fd);
+        return -1;
+    }
+    if (mjpeg) *mjpeg = pixelformat == V4L2_PIX_FMT_MJPEG;
+    if (w) *w = fmt.fmt.pix.width;
+    if (h) *h = fmt.fmt.pix.height;
+    printf("uvc: %s at %dx%d %s\n", dev, fmt.fmt.pix.width,
+           fmt.fmt.pix.height,
+           pixelformat == V4L2_PIX_FMT_MJPEG ? "MJPEG" : "YUYV");
+
+    memset(&req, 0, sizeof(req));
+    req.count = 4;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    if (xioctl(fd, VIDIOC_REQBUFS, &req) < 0 || req.count < 2)
+    {
+        perror("uvc: REQBUFS");
+        close(fd);
+        return -1;
+    }
+
+    struct cam_buf *bufs = calloc(req.count, sizeof(*bufs));
+    for (int i = 0; i < (int)req.count; i++)
+    {
+        struct v4l2_buffer b;
+
+        memset(&b, 0, sizeof(b));
+        b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        b.memory = V4L2_MEMORY_MMAP;
+        b.index = i;
+        if (xioctl(fd, VIDIOC_QUERYBUF, &b) < 0)
+        {
+            perror("uvc: QUERYBUF");
+            close(fd);
+            return -1;
+        }
+        bufs[i].len = b.length;
+        bufs[i].start = mmap(NULL, b.length, PROT_READ | PROT_WRITE,
+                             MAP_SHARED, fd, b.m.offset);
+        if (bufs[i].start == MAP_FAILED)
+        {
+            perror("uvc: mmap");
+            close(fd);
+            return -1;
+        }
+    }
+    for (int i = 0; i < (int)req.count; i++)
+    {
+        struct v4l2_buffer b;
+
+        memset(&b, 0, sizeof(b));
+        b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        b.memory = V4L2_MEMORY_MMAP;
+        b.index = i;
+        xioctl(fd, VIDIOC_QBUF, &b);
+    }
+
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (xioctl(fd, VIDIOC_STREAMON, &type) < 0)
+    {
+        perror("uvc: STREAMON");
+        close(fd);
+        return -1;
+    }
+    printf("uvc: streaming on %s\n", dev);
+
+    *bufs_out = bufs;
+    *nbufs_out = (int)req.count;
+    *cam_fd = fd;
+    return 0;
+}
+
+/* ---------------- MJPEG decode + color conversion ---------------- */
+
+/* MJPEG decode with a non-fatal error handler: corrupt/truncated frames
+   (common on cheap cams) are skipped instead of killing the process,
+   and warnings stay silent. */
+
+struct my_jerr {
+    struct jpeg_error_mgr pub;
+    jmp_buf jb;
+};
+
+static void my_error_exit(j_common_ptr ci)
+{
+    struct my_jerr *e = (struct my_jerr *)ci->err;
+
+    longjmp(e->jb, 1);
+}
+
+static void my_output_message(j_common_ptr ci)
+{
+    (void)ci;   /* silence libjpeg warnings (truncated frames etc.) */
+}
+
+/* BT.601 limited-range (Y 16-235, Cb/Cr 128±112 - what UVC cameras
+   actually encode) -> RGB565. Using libjpeg's full-range conversion on
+   this data washes the image out (lifted blacks, compressed whites).
+   A gamma LUT + chroma saturation gain compensate the panel response
+   (tunable via -G/-S; -R selects the source range). */
+static int cam_range_limited = 1;  /* 1 = Y 16-235, 0 = full range */
+static int sat_pct = 100;          /* chroma gain, % (125+ counters wash; greenish at 125 - revisit) */
+static int gamma_pct = 100;        /* luma exponent, %: 100 = off (125+ darkens but went greenish) */
+static uint8_t gamma_lut[256];
+
+static void build_gamma_lut(void)
+{
+    for (int v = 0; v < 256; v++)
+    {
+        double o = pow(v / 255.0, (double)gamma_pct / 100.0) * 255.0 + 0.5;
+        int oi = (int)o;
+
+        gamma_lut[v] = oi < 0 ? 0 : oi > 255 ? 255 : (uint8_t)oi;
+    }
+}
+
+static inline uint16_t ycc_to_rgb565(int Yv, int Cbv, int Crv)
+{
+    int y = gamma_lut[Yv];
+    int cb = 128 + (Cbv - 128) * sat_pct / 100;
+    int cr = 128 + (Crv - 128) * sat_pct / 100;
+
+    if (cam_range_limited)
+        y -= 16;
+    int r = (298 * y + 409 * cr + 128) >> 8;
+    int g = (298 * y - 100 * cb - 208 * cr + 128) >> 8;
+    int b = (298 * y + 517 * cb + 128) >> 8;
+
+    if (r < 0) r = 0; else if (r > 255) r = 255;
+    if (g < 0) g = 0; else if (g > 255) g = 255;
+    if (b < 0) b = 0; else if (b > 255) b = 255;
+    return (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
+}
+/* decode one MJPEG buffer to malloc'd YCbCr 3BPP (caller frees);
+   returns NULL on decode failure */
+static uint8_t *decode_mjpeg(const uint8_t *in, size_t len, int *w, int *h)
+{
+    struct jpeg_decompress_struct cinfo;
+    struct my_jerr jerr;
+    uint8_t *ycbcr;
+
+    cinfo.err = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = my_error_exit;
+    jerr.pub.output_message = my_output_message;
+    if (setjmp(jerr.jb))
+    {
+        jpeg_destroy_decompress(&cinfo);
+        return NULL;
+    }
+    jpeg_create_decompress(&cinfo);
+    jpeg_mem_src(&cinfo, (unsigned char *)in, len);
+    jpeg_read_header(&cinfo, TRUE);
+    /* keep the raw YCbCr: the camera encodes BT.601 limited-range, the
+       in-library RGB conversion would wash the image out */
+    cinfo.out_color_space = JCS_YCbCr;
+    jpeg_start_decompress(&cinfo);
+
+    *w = cinfo.output_width;
+    *h = cinfo.output_height;
+    ycbcr = malloc((size_t)*w * *h * 3);
+    if (!ycbcr)
+    {
+        jpeg_destroy_decompress(&cinfo);
+        return NULL;
+    }
+    while (cinfo.output_scanline < (unsigned)*h)
+    {
+        JSAMPLE *rowp = (JSAMPLE *)(ycbcr + cinfo.output_scanline * *w * 3);
+
+        jpeg_read_scanlines(&cinfo, &rowp, 1);
+    }
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+    return ycbcr;
+}
+
+/* panel framebuffer + precomputed rotation/scale map */
+static uint16_t panel_fb[PANEL_W * PANEL_H];
+static int16_t *src_map;   /* per panel pixel: [sx_cam, sy_cam] */
+
+static void build_src_map(int cw, int ch)
+{
+    /* camera (cw x ch) rotated 90 deg CW -> (ch x cw), fitted into the
+       panel with letterbox; 1:1 when the camera is 320x240 */
+    double rw = ch, rh = cw;
+    double s = rw > 0 && rh > 0 ?
+               (PANEL_W / rw < PANEL_H / rh ? PANEL_W / rw : PANEL_H / rh) : 1;
+    double offx = (PANEL_W - rw * s) / 2;
+    double offy = (PANEL_H - rh * s) / 2;
+
+    src_map = malloc(2 * sizeof(int16_t) * PANEL_W * PANEL_H);
+    for (int py = 0; py < PANEL_H; py++)
+        for (int px = 0; px < PANEL_W; px++)
+        {
+            int sx_rot = (int)((px - offx) / s);
+            int sy_rot = (int)((py - offy) / s);
+            int sx_cam = sy_rot;          /* 90 deg CW */
+            int sy_cam = (int)rw - 1 - sx_rot;
+
+            if (sx_rot < 0 || sx_rot >= (int)rw ||
+                sy_rot < 0 || sy_rot >= (int)rh ||
+                sx_cam < 0 || sx_cam >= cw ||
+                sy_cam < 0 || sy_cam >= ch)
+            {
+                src_map[(py * PANEL_W + px) * 2] = -1;
+                src_map[(py * PANEL_W + px) * 2 + 1] = -1;
+            }
+            else
+            {
+                src_map[(py * PANEL_W + px) * 2] = (int16_t)sx_cam;
+                src_map[(py * PANEL_W + px) * 2 + 1] = (int16_t)sy_cam;
+            }
+        }
+    printf("uvc: map built (%dx%d -> %dx%d, scale %.3f)\n",
+           cw, ch, PANEL_W, PANEL_H, s);
+}
+
+static void convert_frame(const uint8_t *ycbcr, int cw)
+{
+    for (int py = 0; py < PANEL_H; py++)
+    {
+        uint16_t *dst = &panel_fb[py * PANEL_W];
+        const int16_t *mrow = &src_map[py * PANEL_W * 2];
+
+        for (int px = 0; px < PANEL_W; px++)
+        {
+            int sx = mrow[px * 2], sy = mrow[px * 2 + 1];
+
+            if (sx < 0)
+            {
+                dst[px] = 0;
+                continue;
+            }
+            const uint8_t *p = ycbcr + (sy * cw + sx) * 3;
+            dst[px] = ycc_to_rgb565(p[0], p[1], p[2]);
+        }
+    }
+}
+
+/* raw YUYV cameras: same BT.601 limited-range math, no decode */
+static void convert_yuyv_frame(const uint8_t *yuyv, int cw)
+{
+    for (int py = 0; py < PANEL_H; py++)
+    {
+        uint16_t *dst = &panel_fb[py * PANEL_W];
+        const int16_t *mrow = &src_map[py * PANEL_W * 2];
+
+        for (int px = 0; px < PANEL_W; px++)
+        {
+            int sx = mrow[px * 2], sy = mrow[px * 2 + 1];
+
+            if (sx < 0)
+            {
+                dst[px] = 0;
+                continue;
+            }
+            const uint8_t *pair = yuyv + sy * cw * 2 + (sx & ~1) * 2;
+            dst[px] = ycc_to_rgb565(sx & 1 ? pair[2] : pair[0],
+                                      pair[1], pair[3]);
+        }
+    }
+}
+
+static void blit(void)
+{
+    /* spi_write_buf holds DC high and chunks at spidev's 4096-byte limit */
+    LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
+    spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+}
+
+/* ---------------- main ---------------- */
+
+int main(int argc, char **argv)
+{
+    setvbuf(stdout, NULL, _IONBF, 0);
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
+
+    for (int i = 1; i < argc; i++)
+    {
+        int arg_err = 0;
+
+        if (argv[i][0] == '-' && argv[i][1] && !argv[i][2])
+        {
+            switch (argv[i][1])
+            {
+            case 'G':
+                if (i + 1 < argc)
+                    gamma_pct = atoi(argv[++i]);
+                else
+                    arg_err = 1;
+                break;
+            case 'S':
+                if (i + 1 < argc)
+                    sat_pct = atoi(argv[++i]);
+                else
+                    arg_err = 1;
+                break;
+            case 'R':
+                if (i + 1 < argc && strcmp(argv[++i], "full") == 0)
+                {
+                    cam_range_limited = 0;
+                }
+                break;
+            default: arg_err = 1;
+            }
+        }
+        else
+            arg_err = 1;
+
+        if (arg_err)
+        {
+            printf("usage: uvc_to_lcd [-G gamma_pct] [-S sat_pct] "
+                   "[-R full|lim]\n");
+            return 1;
+        }
+    }
+    build_gamma_lut();
+
+    printf("stage: transport\n");
+    spi_res_open(6);   /* PA6 = CON4.7 */
+    spi_dc_open(1);    /* PA1 = CON4.11 */
+    if (spi_open(100 * 1000 * 1000) != 0)
+        return 1;
+    printf("stage: LCD_Init\n");
+    LCD_Init();
+    LCD_SetAsciiFont(&ASCII_Font16);
+
+    printf("stage: find_uvc\n");
+    int uh = -1;
+    char *dev = find_uvc(&uh);
+    if (!dev)
+    {
+        printf("uvc: no UVC camera found\n");
+        LCD_Clear();
+        LCD_DisplayString(60, 120, (char *)"UVC NA");
+        return 0;
+    }
+    printf("uvc: camera at %s (uh-%d)\n", dev, uh);
+
+    int nbufs, cam_fd, cam_mjpeg = 0, cam_w = 0, cam_h = 0;
+    struct cam_buf *bufs;
+    if (cam_open(dev, &cam_mjpeg, &cam_w, &cam_h, &bufs, &nbufs,
+                 &cam_fd) < 0)
+    {
+        LCD_Clear();
+        LCD_DisplayString(60, 120, (char *)"UVC NA");
+        return 1;
+    }
+    /* src_map is built on the first decoded frame (dims come from the
+       JPEG stream, not the V4L2 request) */
+
+    char band[40];
+    snprintf(band, sizeof(band), "uh-%d", uh < 0 ? 0 : uh);
+    LCD_Clear();
+    LCD_SetColor(LCD_WHITE);
+    LCD_SetBackColor(LCD_BLACK);
+    LCD_FillRect(0, PANEL_H - FPS_BAND, PANEL_W, FPS_BAND);
+    LCD_DisplayString(4, PANEL_H - FPS_BAND + 4, band);
+
+    unsigned frames = 0, fps = 0;
+    struct timespec ts;
+    uint8_t *ycbcr = NULL;
+    int rgb_w = 0, rgb_h = 0;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    double t_end = ts.tv_sec + ts.tv_nsec / 1e9;
+
+    while (!quit_req)
+    {
+        struct v4l2_buffer b;
+        fd_set fds;
+        struct timeval tv = { 2, 0 };
+
+        FD_ZERO(&fds);
+        FD_SET(cam_fd, &fds);
+        if (select(cam_fd + 1, &fds, NULL, NULL, &tv) <= 0)
+        {
+            fprintf(stderr, "uvc: capture timeout\n");
+            break;
+        }
+
+        memset(&b, 0, sizeof(b));
+        b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        b.memory = V4L2_MEMORY_MMAP;
+        if (xioctl(cam_fd, VIDIOC_DQBUF, &b) < 0)
+        {
+            perror("uvc: DQBUF");
+            break;
+        }
+
+        if (cam_mjpeg)
+        {
+            int w, h;
+            uint8_t *new_ycbcr = decode_mjpeg(bufs[b.index].start,
+                                            b.bytesused, &w, &h);
+            xioctl(cam_fd, VIDIOC_QBUF, &b);
+
+            if (new_ycbcr)
+            {
+                free(ycbcr);
+                ycbcr = new_ycbcr;
+                if (w != rgb_w || h != rgb_h)
+                {
+                    rgb_w = w;
+                    rgb_h = h;
+                    build_src_map(rgb_w, rgb_h);
+                }
+                convert_frame(ycbcr, rgb_w);
+                blit();
+                frames++;
+            }
+        }
+        else
+        {
+            if (rgb_w != cam_w || rgb_h != cam_h)
+            {
+                rgb_w = cam_w;
+                rgb_h = cam_h;
+                build_src_map(rgb_w, rgb_h);
+            }
+            convert_yuyv_frame(bufs[b.index].start, cam_w);
+            blit();
+            frames++;
+            xioctl(cam_fd, VIDIOC_QBUF, &b);   /* re-queue! */
+        }
+
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        double now = ts.tv_sec + ts.tv_nsec / 1e9;
+        if (now - t_end >= 1.0)
+        {
+            fps = frames;
+            frames = 0;
+            t_end = now;
+            snprintf(band, sizeof(band), "uh-%d  %u fps",
+                     uh < 0 ? 0 : uh, fps);
+            LCD_SetColor(LCD_WHITE);
+            LCD_SetBackColor(LCD_BLACK);
+            LCD_FillRect(0, PANEL_H - FPS_BAND, PANEL_W, FPS_BAND);
+            LCD_DisplayString(4, PANEL_H - FPS_BAND + 4, band);
+            printf("fps: %u\n", fps);
+        }
+    }
+
+    /* stream off + release */
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    xioctl(cam_fd, VIDIOC_STREAMOFF, &type);
+    for (int i = 0; i < nbufs; i++)
+        munmap(bufs[i].start, bufs[i].len);
+    close(cam_fd);
+    free(dev);
+    free(src_map);
+    free(bufs);
+    free(ycbcr);
+
+    LCD_Clear();
+    LCD_DisplayString(60, 120, (char *)"bye");
+    printf("bye\n");
+    return 0;
+}

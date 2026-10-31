@@ -1,0 +1,44 @@
+# uvc_to_st7789_md169_240x280_spi
+
+Stream a UVC camera to the ST7789V 1.69" 240x280 (MD169) SPI panel on
+the Orange Pi Zero (hw SPI1 mode 0, same transport as
+`app/st7789_md169_240x280_spi`; SPI clock requested at 100 MHz - the
+controller clamps to its ~37.5 MHz ceiling).
+
+- **Auto-detects** the first UVC capture device under `/dev/video*`
+  (driver `uvcvideo`, capture capability)
+- Shows the **USB host controller number** as `uh-N` in the bottom band
+  (derived from the controller base in the device's sysfs path:
+  `1c19000`=uh-0/OTG, `1c1b400`=uh-1, `1c1c400`=uh-2, `1c1d400`=uh-3),
+  together with the live fps
+- **No camera: shows `UVC NA`** and exits (the panel keeps the frame)
+- V4L2 MMAP streaming; **format/size auto-selected per camera** by
+  enumerating its descriptors: YUYV preferred (raw path, no decode),
+  else MJPEG decoded via the board's libjpeg (`libjpeg.so.8`, vendored;
+  minimal `include/jconfig.h` for the cross build); largest size that
+  fits 640x480 wins. Both paths convert with BT.601 limited-range math
+  (UVC cameras encode limited-range - using full-range washes the image)
+- rotated 90 deg and scaled to the portrait panel, 4096-byte chunked
+  blits over spidev
+- corrupt/truncated MJPEG frames are skipped (non-fatal libjpeg error
+  handler); the panel is the fps bottleneck (~45 ms per full blit)
+- known cameras: a no-name "Web Camera" (32e6:9228, usbhost 1) is
+  **MJPEG-only 160x120@30** - its entire capability list, no RGB/YUV
+  modes at any size (confirmed on Linux ENUM_FMT and the USB
+  descriptors); expect washed-out color from that unit itself. A
+  Logitech C920 (YUYV/MJPG up to 1080p) streams with correct color
+
+## Wiring / prerequisites
+
+Same panel wiring as `app/st7789_md169_240x280_spi` (its README has the
+table). Camera: any UVC webcam in a USB host port - verified with a
+"Web Camera" (32e6:9228) on usbhost 1 (`usb6` bus, controller
+`1c1b400.usb`).
+
+## Usage
+
+```
+make push run
+```
+
+Ctrl-C stops (shows `bye`). The fps print also goes to the console.
