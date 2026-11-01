@@ -26,3 +26,4 @@ Thumbs.db
 /app/e_server/e_server
 /app/e_server/server.o
 /app/e_server/web_assets.h
+/app/uvc_face_detect_st7789_md169_240x280_spi/face_detect

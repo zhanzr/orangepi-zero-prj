@@ -16,6 +16,7 @@ subdirectory is one self-contained project with its own `Makefile` and
 | `rec_wav/` | Audio recorder: up to 30 s WAV, `q` stops early; MP3/OGG/FLAC via on-board encoders. H3 codec mic = CON5 10/11/12 |
 | `netbench/` | TCP throughput benchmark, both interfaces both directions (`make bench`); ethernet 77/63 Mbit/s, wifi 1.5/6.5 Mbit/s (see README) |
 | `uvc_to_st7789_md169_240x280_spi/` | UVC camera viewer on the MD169 panel: auto-detect, `uh-N` host number + fps band, `UVC NA` without camera; MJPEG via vendored libjpeg |
+| `uvc_face_detect_st7789_md169_240x280_spi/` | UVC camera + **face detection** on the MD169 panel: vendored libfacedetection CNN (NEON, weights in-tree, no training), detector pthread at ~430 ms/pass while video streams at 15 fps, green boxes mapped through the panel rotation, face count in the band OSD; 18-bit RGB666 default |
 | `e_server/` | Embedded web server (port 8080): LED control (green/red), CPU temp plot, MJPEG `/stream` from the UVC camera, board info. Ported from mp157-dk1-prj |
 
 ## Common workflow (per project, from the project directory)
