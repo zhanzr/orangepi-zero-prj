@@ -107,7 +107,7 @@ after enabling the overlays).
 | `app/st7789_md169_240x280_spi/ped_detect` | pedestrian detection on the panel | OpenCV HOG (pre-trained), native board build |
 | `app/st7789_md169_240x280_spi/person_vis` | person-visible verdict on the panel | MLPerf-Tiny model via TFLM, ~460 ms |
 | `app/st7789_md169_240x280_spi/wake_word` | yes/no wake word on the panel | TFLM micro_speech + preprocessor model, H3 codec mic |
-| `app/e_server` | embedded web server (port 8080) | LED control, CPU temp plot, MJPEG camera `/stream`, board info; ported from mp157-dk1-prj |
+| `app/st7789_md169_240x280_spi/e_server` | embedded web server (port 8080) | LED control, CPU temp plot, MJPEG camera `/stream`, board info; ported from mp157-dk1-prj |
 
 ## References
 

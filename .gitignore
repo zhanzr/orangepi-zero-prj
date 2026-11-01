@@ -22,9 +22,9 @@ Thumbs.db
 /app/st7789_md169_240x280_spi/uvc_to_lcd/vendor/*
 /app/netbench/netbench
 /app/netbench/netbench-host
-/app/e_server/e_server
-/app/e_server/server.o
-/app/e_server/web_assets.h
+/app/st7789_md169_240x280_spi/e_server/e_server
+/app/st7789_md169_240x280_spi/e_server/server.o
+/app/st7789_md169_240x280_spi/e_server/web_assets.h
 /app/st7789_md169_240x280_spi/face_detect/face_detect
 /app/st7789_md169_240x280_spi/face_pico/face_pico
 /app/st7789_md169_240x280_spi/object_detect/object_detect
