@@ -23,3 +23,6 @@ Thumbs.db
 /app/uvc_to_st7789_md169_240x280_spi/vendor/*
 /app/netbench/netbench
 /app/netbench/netbench-host
+/app/e_server/e_server
+/app/e_server/server.o
+/app/e_server/web_assets.h

@@ -540,6 +540,28 @@ static void blit(void)
 
 /* ---------------- main ---------------- */
 
+/* release an open camera (STREAMOFF + munmap + close) */
+static void cam_release(int *fd, struct cam_buf **bufs, int *nbufs)
+{
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if (*fd >= 0) xioctl(*fd, VIDIOC_STREAMOFF, &type);
+    for (int i = 0; i < *nbufs; i++)
+        if ((*bufs)[i].start) munmap((*bufs)[i].start, (*bufs)[i].len);
+    free(*bufs);
+    close(*fd);
+    *fd = -1;
+    *bufs = NULL;
+    *nbufs = 0;
+}
+
+static void msleep_slice(void)   /* 100 ms, Ctrl-C stays snappy */
+{
+    struct timespec sl = { 0, 100 * 1000 * 1000 };
+
+    nanosleep(&sl, NULL);
+}
+
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -596,44 +618,62 @@ int main(int argc, char **argv)
     LCD_Init();
     LCD_SetAsciiFont(&ASCII_Font16);
 
-    printf("stage: find_uvc\n");
-    int uh = -1;
-    char *dev = find_uvc(&uh);
-    if (!dev)
-    {
-        printf("uvc: no UVC camera found\n");
-        LCD_Clear();
-        LCD_DisplayString(60, 120, (char *)"UVC NA");
-        return 0;
-    }
-    printf("uvc: camera at %s (uh-%d)\n", dev, uh);
-
-    int nbufs, cam_fd, cam_mjpeg = 0, cam_w = 0, cam_h = 0;
-    struct cam_buf *bufs;
-    if (cam_open(dev, &cam_mjpeg, &cam_w, &cam_h, &bufs, &nbufs,
-                 &cam_fd) < 0)
-    {
-        LCD_Clear();
-        LCD_DisplayString(60, 120, (char *)"UVC NA");
-        return 1;
-    }
-    /* src_map is built on the first decoded frame (dims come from the
-       JPEG stream, not the V4L2 request) */
-
-    char band[40];
-    snprintf(band, sizeof(band), "uh-%d", uh < 0 ? 0 : uh);
-    LCD_Clear();
-
-    unsigned frames = 0, fps = 0;
-    struct timespec ts;
+    /* camera lifecycle: absent -> rescan every 2 s ("UVC NA" on screen);
+       present -> stream; gone mid-stream -> release + rescan again */
+    char *dev = NULL;
+    int uh = -1, cam_fd = -1, cam_mjpeg = 0, cam_w = 0, cam_h = 0, nbufs = 0;
+    struct cam_buf *bufs = NULL;
     uint8_t *ycbcr = NULL;
     int rgb_w = 0, rgb_h = 0;
-
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    double t_end = ts.tv_sec + ts.tv_nsec / 1e9;
+    char band[40] = "uh-?";
+    unsigned frames = 0, fps = 0, timeouts = 0, na_shown = 0;
+    struct timespec ts;
+    double t_end = 0, t_scan = 0;
 
     while (!quit_req)
     {
+        if (!dev)
+        {
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            double now = ts.tv_sec + ts.tv_nsec / 1e9;
+
+            if (now - t_scan >= 2.0)
+            {
+                t_scan = now;
+                dev = find_uvc(&uh);
+                if (dev)
+                {
+                    printf("uvc: camera at %s (uh-%d)\n", dev, uh);
+                    snprintf(band, sizeof(band), "uh-%d", uh < 0 ? 0 : uh);
+                    na_shown = 0;
+                }
+                else if (!na_shown)
+                {
+                    printf("uvc: no UVC camera found\n");
+                    LCD_Clear();
+                    LCD_DisplayString(60, 120, (char *)"UVC NA");
+                    na_shown = 1;
+                }
+            }
+            msleep_slice();
+            continue;
+        }
+
+        if (cam_fd < 0)
+        {
+            if (cam_open(dev, &cam_mjpeg, &cam_w, &cam_h, &bufs, &nbufs,
+                         &cam_fd) < 0)
+            {
+                fprintf(stderr, "uvc: cam_open failed, rescanning\n");
+                free(dev);
+                dev = NULL;
+                rgb_w = rgb_h = 0;
+                t_scan = 0;
+                msleep_slice();
+                continue;
+            }
+        }
+
         struct v4l2_buffer b;
         fd_set fds;
         struct timeval tv = { 2, 0 };
@@ -642,9 +682,20 @@ int main(int argc, char **argv)
         FD_SET(cam_fd, &fds);
         if (select(cam_fd + 1, &fds, NULL, NULL, &tv) <= 0)
         {
-            fprintf(stderr, "uvc: capture timeout\n");
-            break;
+            if (++timeouts >= 2)
+            {
+                fprintf(stderr, "uvc: no frames, releasing camera\n");
+                cam_release(&cam_fd, &bufs, &nbufs);
+                free(dev);
+                dev = NULL;
+                timeouts = 0;
+                t_scan = 0;
+                LCD_Clear();
+                LCD_DisplayString(60, 120, (char *)"UVC NA");
+            }
+            continue;
         }
+        timeouts = 0;
 
         memset(&b, 0, sizeof(b));
         b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -652,7 +703,10 @@ int main(int argc, char **argv)
         if (xioctl(cam_fd, VIDIOC_DQBUF, &b) < 0)
         {
             perror("uvc: DQBUF");
-            break;
+            cam_release(&cam_fd, &bufs, &nbufs);
+            free(dev);
+            dev = NULL;
+            continue;
         }
 
         if (cam_mjpeg)
@@ -675,7 +729,10 @@ int main(int argc, char **argv)
                 convert_frame(ycbcr, rgb_w);
             }
             else
+            {
+                msleep_slice();
                 continue;
+            }
         }
         else
         {
@@ -721,16 +778,12 @@ int main(int argc, char **argv)
         }
     }
 
-    /* stream off + release */
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    xioctl(cam_fd, VIDIOC_STREAMOFF, &type);
-    for (int i = 0; i < nbufs; i++)
-        munmap(bufs[i].start, bufs[i].len);
-    close(cam_fd);
-    free(dev);
-    free(src_map);
-    free(bufs);
+    /* cleanup */
+    if (cam_fd >= 0)
+        cam_release(&cam_fd, &bufs, &nbufs);
     free(ycbcr);
+    free(src_map);
+    free(dev);
 
     LCD_Clear();
     LCD_DisplayString(60, 120, (char *)"bye");

@@ -100,6 +100,7 @@ after enabling the overlays).
 | `app/rec_wav` | audio recorder | up to 30 s WAV, `q` early-stop, MP3/OGG/FLAC via on-board encoders; H3 codec (mic on CON5), PulseAudio disabled |
 | `app/netbench` | TCP throughput benchmark for end0 + wld1 | `make bench` runs both interfaces, both directions; results in its README |
 | `app/uvc_to_st7789_md169_240x280_spi` | UVC camera -> MD169 panel streamer | auto-detect, `uh-N` + fps band, `UVC NA` fallback; MJPEG via board libjpeg |
+| `app/e_server` | embedded web server (port 8080) | LED control, CPU temp plot, MJPEG camera `/stream`, board info; ported from mp157-dk1-prj |
 
 ## References
 

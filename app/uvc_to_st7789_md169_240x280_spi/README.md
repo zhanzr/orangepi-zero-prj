@@ -11,7 +11,12 @@ controller clamps to its ~37.5 MHz ceiling).
   (derived from the controller base in the device's sysfs path:
   `1c19000`=uh-0/OTG, `1c1b400`=uh-1, `1c1c400`=uh-2, `1c1d400`=uh-3),
   together with the live fps
-- **No camera: shows `UVC NA`** and exits (the panel keeps the frame)
+- **No camera: shows `UVC NA`** and rescans every 2 s — plug one in and
+  it starts streaming automatically; a camera that disappears mid-stream
+  is released and the app returns to the scanning state
+- **Exclusive use:** the camera and the panel are single-open resources —
+  e_server and this app cannot run at the same time (the second one to
+  start exits with a busy message)
 - V4L2 MMAP streaming; **format/size auto-selected per camera** by
   enumerating its descriptors: YUYV preferred (raw path, no decode),
   else MJPEG decoded via the board's libjpeg (`libjpeg.so.8`, vendored;
