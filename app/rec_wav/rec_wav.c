@@ -29,7 +29,7 @@
 #define DEFAULT_RATE     16000
 #define DEFAULT_CH       1
 #define DEFAULT_SEC      30
-#define FRAMES_PER_READ  1024
+#define FRAMES_PER_READ  320    /* 20 ms at 16 kHz: keeps q-checks tight */
 
 static volatile sig_atomic_t stop_req;
 
@@ -86,6 +86,43 @@ static int stdin_has_key(void)
     if (n == 1 && (c == 'q' || c == 'Q'))
         return 1;
     return 0;
+}
+
+/* enumerate every capture-capable PCM device across all cards */
+static void list_capture_devices(void)
+{
+    int card = -1;
+
+    printf("capture devices (-d <dev> to choose):\n");
+    while (snd_card_next(&card) >= 0 && card >= 0)
+    {
+        char name[32];
+        snd_ctl_t *ctl = NULL;
+
+        snprintf(name, sizeof(name), "hw:%d", card);
+        if (snd_ctl_open(&ctl, name, 0) < 0)
+            continue;
+        snd_ctl_card_info_t *info;
+        snd_ctl_card_info_alloca(&info);
+        snd_ctl_card_info(ctl, info);
+        const char *card_name = snd_ctl_card_info_get_name(info);
+
+        int dev = -1;
+        while (snd_ctl_pcm_next_device(ctl, &dev) >= 0 && dev >= 0)
+        {
+            snd_pcm_info_t *pinfo;
+            snd_pcm_info_alloca(&pinfo);
+            snd_pcm_info_set_device(pinfo, (unsigned)dev);
+            snd_pcm_info_set_stream(pinfo, SND_PCM_STREAM_CAPTURE);
+            if (snd_ctl_pcm_info(ctl, pinfo) < 0)
+                continue;
+            printf("  plughw:%d,%d  [%s]  (%d subdevice(s))\n",
+                   card, dev, card_name,
+                   snd_pcm_info_get_subdevices_count(pinfo));
+        }
+        snd_ctl_close(ctl);
+    }
+    printf("  default      [ALSA routing; on this board usually card 0]\n");
 }
 
 static void wav_write_header(FILE *f, uint32_t rate, uint16_t ch,
@@ -183,8 +220,9 @@ static int encode(const char *fmt, const char *wav, const char *out)
 
 static void usage(void)
 {
-    printf("usage: rec_wav [-d device] [-r rate] [-c channels] "
-           "[-t max_sec] [-f wav|mp3|ogg|flac] [-o out_base]\n");
+    printf("usage: rec_wav [-l] [-d device] [-r rate] [-c channels] "
+           "[-t max_sec] [-f wav|mp3|ogg|flac] [-o out_base]\n"
+           "  -l   list all capture devices\n");
 }
 
 int main(int argc, char **argv)
@@ -196,6 +234,13 @@ int main(int argc, char **argv)
     unsigned rate = DEFAULT_RATE, channels = DEFAULT_CH;
     unsigned max_sec = DEFAULT_SEC;
     int arg_err = 0;
+
+    for (int i = 1; i < argc; i++)
+        if (strcmp(argv[i], "-l") == 0)
+        {
+            list_capture_devices();
+            return 0;
+        }
 
     for (int i = 1; i < argc; i++)
     {
@@ -230,7 +275,7 @@ int main(int argc, char **argv)
         time_t now = time(NULL);
         struct tm tm;
         localtime_r(&now, &tm);
-        strftime(base, sizeof(base), "rec_wav_%Y%m%d_%H%M%S", &tm);
+        strftime(base, sizeof(base), "audio_%Y%m%d_%H%M%S", &tm);
     }
     snprintf(wav_path, sizeof(wav_path), "%s.wav", base);
     snprintf(out_path, sizeof(out_path), "%s.%s", base, fmt);
@@ -239,6 +284,12 @@ int main(int argc, char **argv)
     install_handlers();
     tio_single_key();
     atexit(tio_restore);
+
+    /* the H3 codec ships with the capture route disabled -> snd_pcm_readi
+       fails with EIO forever; enable Mic1/Mic2 capture + gain first */
+    if (system("amixer -c 0 sset 'Mic1',0 100%,100% cap > /dev/null 2>&1; "
+               "amixer -c 0 sset 'Mic2',0 100%,100% cap > /dev/null 2>&1") == 0)
+        printf("rec_wav: Mic1/Mic2 capture routes enabled\n");
 
     snd_pcm_t *pcm;
     int err = snd_pcm_open(&pcm, dev, SND_PCM_STREAM_CAPTURE, 0);
@@ -259,6 +310,11 @@ int main(int argc, char **argv)
     err |= snd_pcm_hw_params_set_channels(pcm, hw, channels);
     unsigned real_rate = rate;
     err |= snd_pcm_hw_params_set_rate_near(pcm, hw, &real_rate, 0);
+    {
+        snd_pcm_uframes_t period = FRAMES_PER_READ;
+
+        snd_pcm_hw_params_set_period_size_near(pcm, hw, &period, 0);
+    }
     err |= snd_pcm_hw_params(pcm, hw);
     snd_pcm_hw_params_free(hw);
     if (err < 0)
@@ -285,6 +341,7 @@ int main(int argc, char **argv)
     unsigned max_frames = max_sec * real_rate;
     unsigned total = 0;
     int16_t buf[FRAMES_PER_READ * 2];
+    int io_errs = 0;
     time_t t0 = time(NULL);
 
     printf("recording %s (%u Hz, %u ch, max %u s) - press 'q' to stop\n",
@@ -311,9 +368,18 @@ int main(int argc, char **argv)
             break;
         if (n < 0)
         {
+            /* EIO here almost always means the capture route was off;
+               try to recover a few times instead of dropping the file */
+            if (snd_pcm_recover(pcm, (int)n, 1) == 0 && ++io_errs < 50)
+            {
+                fprintf(stderr, "rec_wav: read %s - retrying\n",
+                        snd_strerror((int)n));
+                continue;
+            }
             fprintf(stderr, "rec_wav: read: %s\n", snd_strerror((int)n));
             break;
         }
+        io_errs = 0;
 
         fwrite(buf, 2, (size_t)n * channels, f);
         total += (unsigned)n;

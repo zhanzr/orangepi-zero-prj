@@ -27,3 +27,11 @@ Thumbs.db
 /app/e_server/server.o
 /app/e_server/web_assets.h
 /app/uvc_face_detect_st7789_md169_240x280_spi/face_detect
+/app/uvc_face_pico_st7789_md169_240x280_spi/face_pico
+/app/uvc_object_detect_st7789_md169_240x280_spi/object_detect
+/app/uvc_object_detect_st7789_md169_240x280_spi/*.o
+/app/uvc_qrscan_st7789_md169_240x280_spi/qr_scan
+/app/uvc_ped_detect_st7789_md169_240x280_spi/ped_detect
+/app/uvc_person_vis_st7789_md169_240x280_spi/person_vis
+/app/uvc_wake_word_st7789_md169_240x280_spi/wake_word
+/app/uvc_qrscan_st7789_md169_240x280_spi/qr_scan.o

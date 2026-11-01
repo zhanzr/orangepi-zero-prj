@@ -68,7 +68,7 @@ needed.
 | WiFi | interface `wld1` (currently 192.168.5.218) |
 | LEDs | `orangepi:green:pwr` (power), `orangepi:red:status` - both start with trigger `none`, free for apps |
 | Temperature | `/sys/class/thermal/thermal_zone0` (`cpu_thermal`, hwmon driver name `cpu_thermal` = Allwinner THS **die sensor**, millidegrees C) |
-| GPIO/I2C/SPI | via CON4 26-pin header - see `docs/con4-header.md` (verified pinout, I2C0 via overlay) |
+| GPIO/I2C/SPI | via CON4 26-pin header - see `docs/con4-header.md`, `docs/ai-ml-projects.md` (AI/ML apps overview) (verified pinout, I2C0 via overlay) |
 
 LED control: `echo heartbeat > /sys/class/leds/orangepi:red:status/trigger`
 or `echo 1 > .../brightness` - works as the `dev` user without root: a
@@ -101,6 +101,12 @@ after enabling the overlays).
 | `app/netbench` | TCP throughput benchmark for end0 + wld1 | `make bench` runs both interfaces, both directions; results in its README |
 | `app/uvc_to_st7789_md169_240x280_spi` | UVC camera -> MD169 panel streamer | auto-detect, `uh-N` + fps band, `UVC NA` fallback; MJPEG via board libjpeg |
 | `app/uvc_face_detect_st7789_md169_240x280_spi` | face detection with boxes on the panel | vendored CNN weights (no training), detector thread ~430 ms, video unaffected |
+| `app/uvc_face_pico_st7789_md169_240x280_spi` | face detection, lighter: pico cascade | embedded facefinder, ~5-25 ms/pass |
+| `app/uvc_object_detect_st7789_md169_240x280_spi` | 80-class object detection on the panel | Yolo-Fastest + NCNN (vendored), ~280 ms/pass |
+| `app/uvc_qrscan_st7789_md169_240x280_spi` | QR/barcode reader on the panel | zbar, native board build |
+| `app/uvc_ped_detect_st7789_md169_240x280_spi` | pedestrian detection on the panel | OpenCV HOG (pre-trained), native board build |
+| `app/uvc_person_vis_st7789_md169_240x280_spi` | person-visible verdict on the panel | MLPerf-Tiny model via TFLM, ~460 ms |
+| `app/uvc_wake_word_st7789_md169_240x280_spi` | yes/no wake word on the panel | TFLM micro_speech + preprocessor model, H3 codec mic |
 | `app/e_server` | embedded web server (port 8080) | LED control, CPU temp plot, MJPEG camera `/stream`, board info; ported from mp157-dk1-prj |
 
 ## References
