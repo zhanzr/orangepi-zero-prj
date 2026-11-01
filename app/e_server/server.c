@@ -44,8 +44,8 @@
 
 static int cam_uh = -1;                  /* USB host number of the camera */
 static char cam_uh_str[16] = "uh-?";
-static int panel_gamma_pct = 130;   /* luma exponent %: >100 counters panel wash */
-static int panel_sat_pct = 125;     /* chroma gain % */
+static int panel_gamma_pct = 100;   /* luma exponent %: 100 = neutral */
+static int panel_sat_pct = 100;     /* chroma gain %: 100 = neutral */
 static uint8_t panel_gamma_lut[256];
 
 static void panel_build_gamma(void)
@@ -531,6 +531,11 @@ static volatile int stream_busy;
 #define PANEL_H 280
 #define PANEL_BAND 24
 static uint16_t panel_fb[PANEL_W * PANEL_H];
+static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
+/* 18-bit RGB666 default: the chip's internal 565->666 LUT (datasheet
+ * 8.8.42, contents undocumented) is NOT bit-replication - empirically
+ * it washes colors vs browser; feeding our own 6-bit values matches. */
+static int panel_18bit = 1;                      /* COLMOD 0x06 (RGB666) */
 static int16_t *panel_map;
 static int panel_ok;
 
@@ -577,8 +582,9 @@ static void detect_cam_uh(void)
   }
 }
 
-/* BT.601 limited-range (UVC) -> RGB565, chroma centered */
-static inline uint16_t ycc_to_rgb565(uint8_t Y, uint8_t Cb, uint8_t Cr)
+/* BT.601 limited-range (UVC) -> RGB888, chroma centered */
+static inline void ycc_to_rgb888(uint8_t Y, uint8_t Cb, uint8_t Cr,
+                                 int *ro, int *go, int *bo)
 {
   int y = panel_gamma_lut[Y] - 16;
   int cb = (Cb - 128) * panel_sat_pct / 100;
@@ -590,6 +596,14 @@ static inline uint16_t ycc_to_rgb565(uint8_t Y, uint8_t Cb, uint8_t Cr)
   if (r < 0) r = 0; else if (r > 255) r = 255;
   if (g < 0) g = 0; else if (g > 255) g = 255;
   if (b < 0) b = 0; else if (b > 255) b = 255;
+  *ro = r; *go = g; *bo = b;
+}
+
+static inline uint16_t ycc_to_rgb565(uint8_t Y, uint8_t Cb, uint8_t Cr)
+{
+  int r, g, b;
+
+  ycc_to_rgb888(Y, Cb, Cr, &r, &g, &b);
   return (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
 }
 
@@ -691,13 +705,30 @@ static void panel_convert(const uint8_t *ycbcr, int cw)
     uint16_t *dst = &panel_fb[py * PANEL_W];
     const int16_t *mrow = &panel_map[py * PANEL_W * 2];
 
+    uint8_t *d6 = &panel_666[py * PANEL_W * 3];
+
     for (int px = 0; px < PANEL_W; px++)
     {
       int sx = mrow[px * 2], sy = mrow[px * 2 + 1];
 
-      if (sx < 0) { dst[px] = 0; continue; }
+      if (sx < 0)
+      {
+        dst[px] = 0;
+        if (panel_18bit) { d6[px * 3] = d6[px * 3 + 1] = d6[px * 3 + 2] = 0; }
+        continue;
+      }
       const uint8_t *p = ycbcr + (sy * cw + sx) * 3;
-      dst[px] = ycc_to_rgb565(p[0], p[1], p[2]);
+      if (panel_18bit)
+      {
+        int r, g, b;
+
+        ycc_to_rgb888(p[0], p[1], p[2], &r, &g, &b);
+        dst[px] = (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
+        d6[px * 3] = (uint8_t)r; d6[px * 3 + 1] = (uint8_t)g;
+        d6[px * 3 + 2] = (uint8_t)b;
+      }
+      else
+        dst[px] = ycc_to_rgb565(p[0], p[1], p[2]);
     }
   }
 }
@@ -724,7 +755,14 @@ static void panel_osd(const char *s, int x, int y)
 
         if (px < 0 || px >= PANEL_W) continue;
         if ((bits >> col) & 1)
+        {
           panel_fb[py * PANEL_W + px] = 0xFFFF;
+          if (panel_18bit)
+          {
+            uint8_t *d6 = &panel_666[(py * PANEL_W + px) * 3];
+            d6[0] = d6[1] = d6[2] = 0xFF;
+          }
+        }
       }
     }
     x += 8;
@@ -735,7 +773,23 @@ static void panel_osd(const char *s, int x, int y)
 static void panel_blit(void)
 {
   LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
-  spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+  if (!panel_18bit)
+  {
+    spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+    return;
+  }
+  /* COLMOD 0x06, ST7789VW datasheet 8.8.43: 3 bytes/pixel, each component
+     in D7..D2, D1..D0 don't care */
+  static uint8_t row18[PANEL_W * 3];
+
+  for (int py = 0; py < PANEL_H; py++)
+  {
+    const uint8_t *src = &panel_666[py * PANEL_W * 3];
+
+    for (int px = 0; px < PANEL_W * 3; px++)
+      row18[px] = src[px] & 0xFC;
+    spi_write_buf(row18, sizeof(row18));
+  }
 }
 
 static void panel_init(void)
@@ -746,8 +800,11 @@ static void panel_init(void)
   LCD_Init();
   LCD_SetAsciiFont(&ASCII_Font16);
   LCD_Clear();
+  if (panel_18bit)
+    LCD_SetPix18(1);
   panel_ok = 1;
-  printf("panel: MD169 mirror enabled\n");
+  printf("panel: MD169 mirror enabled%s\n",
+         panel_18bit ? " (18-bit RGB666)" : "");
   fflush(stdout);
 }
 
@@ -1182,13 +1239,17 @@ int main(int argc, char **argv)
 {
   int port = 8080;
 
-  /* argv: [port] [-G<gamma%%>] [-S<sat%%>]  e.g. ./e_server 8080 -G130 -S125 */
+  /* argv: [port] [-G<gamma%%>] [-S<sat%%>] [-5]  e.g. ./e_server 8080 -G130 -S125 */
   for (int i = 1; i < argc; i++)
   {
     if (strncmp(argv[i], "-G", 2) == 0 && argv[i][2])
       panel_gamma_pct = atoi(argv[i] + 2);
     else if (strncmp(argv[i], "-S", 2) == 0 && argv[i][2])
       panel_sat_pct = atoi(argv[i] + 2);
+    else if (strcmp(argv[i], "-5") == 0)
+      panel_18bit = 0;         /* legacy 65K: washed (internal LUT), see docs */
+    else if (strcmp(argv[i], "-6") == 0)
+      ;                        /* 18-bit: already the default */
     else
       port = atoi(argv[i]);
   }
@@ -1220,7 +1281,9 @@ int main(int argc, char **argv)
   printf("  page: %u bytes gzip (index_html_gz), %u embedded public files\n",
          (unsigned)index_html_gz_len, (unsigned)embedded_files_count);
   printf("  GET /api/leds | POST /api/leds | GET /api/adc | GET /api/info | GET /stream\n");
-  printf("  panel: gamma %d%%, saturation %d%% (-G/-S to change)\n", panel_gamma_pct, panel_sat_pct);
+  printf("  panel: gamma %d%%, saturation %d%%, %s (-G/-S; -5 = legacy 16-bit)\n",
+         panel_gamma_pct, panel_sat_pct,
+         panel_18bit ? "RGB666 (default)" : "RGB565 (legacy)");
   printf("  (Ctrl-C to stop)\n");
   detect_cam_uh();
 

@@ -42,6 +42,7 @@ void StopDelay(uint16_t ms);
 
 void LCD_Init(void);
 void LCD_RESET(void);
+void LCD_SetPix18(int en);
 void LCD_IC_Init(void);
 void LCD_SetAddress(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 void LCD_SetColor(uint32_t rgb888);

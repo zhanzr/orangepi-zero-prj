@@ -30,13 +30,25 @@ controller clamps to its ~37.5 MHz ceiling).
 
 ## Color pipeline (fixed 2026-11-01)
 
-YUYV/MJPEG chroma -> **BT.601 limited-range** -> RGB565, chroma properly
-centered (an early version kept the +128 offset in the formula -
+YUYV/MJPEG chroma -> **BT.601 limited-range** -> RGB666 (18-bit), chroma
+properly centered (an early version kept the +128 offset in the formula -
 permanent magenta-white veil on every camera). Tunables: `-G` luma
-gamma exponent %, `-S` chroma saturation %, `-R lim|full` source range
-(defaults 100/100/lim = neutral-correct). The fps line also prints the
-framebuffer average R/G/B as a color-balance telemetry. Residual color
-abnormality under investigation (panel gamma registers vs camera WB).
+gamma exponent %, `-S` chroma saturation %, `-R lim|full` source range,
+`-5` legacy 16-bit RGB565 (defaults 100/100/lim, 18-bit on). The fps line
+also prints the framebuffer average R/G/B as a color-balance telemetry.
+
+**Panel color depth - why 18-bit is the default:** the ST7789VW expands
+incoming RGB565 to its 18-bit frame memory through an internal LUT that
+the datasheet documents only as a black box (sec 8.8.42, "Look-up table
+for 65k color data mapping", no contents given). Empirically that LUT
+washes colors: the same scene matched the browser view only when the
+panel is driven in 18-bit mode (sec 8.8.43: 3 bytes/pixel, each 6-bit
+component in D7..D2) with the conversion pipeline feeding full 8-bit
+values quantized to 6 bits ourselves. 18-bit costs no fps (15-16 fps
+verified); `-5` remains for reference/bring-up. The earlier "residual
+color abnormality" question is closed - it was the 16-bit expansion,
+not the gamma registers (verified against the ST7789VW datasheet,
+vendor-tuned E0/E1).
 - known cameras: a no-name "Web Camera" (32e6:9228, usbhost 1) is
   **MJPEG-only 160x120@30** - its entire capability list, no RGB/YUV
   modes at any size (confirmed on Linux ENUM_FMT and the USB

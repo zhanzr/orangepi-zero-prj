@@ -116,6 +116,12 @@ void LCD_RESET(void)
 }
 
 /* ---- module vendor init (module_8pin stm32f1_ex, TFT==169) ---- */
+void LCD_SetPix18(int en)
+{
+    WriteComm(0x3A);              /* COLMOD: 05h = 16bpp, 06h = 18bpp */
+    WriteData(en ? 0x06 : 0x05);
+}
+
 void LCD_IC_Init(void)
 {
     WriteComm(0x36);

@@ -22,6 +22,15 @@ Adapted for the OPi Zero:
   detection refreshes on every stream start (hot-plug aware). Verified
   with the 32e6:9228 webcam on usbhost 1 (~15 fps over WiFi,
   USB-bottlenecked only by the camera).
+
+  Panel color depth is **18-bit RGB666 by default** (`-5` = legacy
+  16-bit RGB565). Reason: the ST7789VW expands incoming RGB565 to its
+  18-bit frame memory through an internal LUT that the datasheet only
+  shows as a black box (8.8.42, "Look-up table for 65k color data
+  mapping", contents undocumented). Empirically that LUT washes colors;
+  driving 18-bit mode directly (8.8.43: 3 bytes/pixel, each 6-bit
+  component in D7..D2) with our own 6-bit values matches the browser
+  view. Costs no fps (verified 15-16 fps in both modes).
 - **Board info** reports `arch` + `lan_ip` (real), and best-effort
   `public_ip` / geo / weather over plain HTTP (ipify / ip-api / wttr.in);
   anything unavailable shows as "N/A".

@@ -45,6 +45,11 @@
 #define FPS_BAND 24
 
 static uint16_t panel_fb[PANEL_W * PANEL_H];
+static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
+/* 18-bit RGB666 default: the chip's internal 565->666 LUT (datasheet
+ * 8.8.42, undocumented) washes colors; our own 6-bit values match the
+ * browser view. */
+static int pix18 = 1;                            /* COLMOD 0x06 (RGB666) */
 
 /* camera capture request: format+size auto-selected per camera
    (YUYV preferred raw, else MJPEG via libjpeg; largest fit <= 640x480) */
@@ -76,7 +81,19 @@ static void fb_string_t(const char *s, int x, int y, uint16_t fg)
                 if (px < 0 || px >= PANEL_W)
                     continue;
                 if ((bits >> col) & 1)
+                {
                     panel_fb[py * PANEL_W + px] = fg;
+                    if (pix18)
+                    {
+                        uint8_t *d6 = &panel_666[(py * PANEL_W + px) * 3];
+                        unsigned r = (fg >> 11) & 0x1F, g = (fg >> 5) & 0x3F,
+                                 bl = fg & 0x1F;
+
+                        d6[0] = (uint8_t)((r << 3) | (r >> 2));
+                        d6[1] = (uint8_t)((g << 2) | (g >> 4));
+                        d6[2] = (uint8_t)((bl << 3) | (bl >> 2));
+                    }
+                }
             }
         }
         x += 8;
@@ -385,7 +402,8 @@ static void build_gamma_lut(void)
     }
 }
 
-static inline uint16_t ycc_to_rgb565(int Yv, int Cbv, int Crv)
+static inline void ycc_to_rgb888(int Yv, int Cbv, int Crv,
+                                 int *ro, int *go, int *bo)
 {
     int y = gamma_lut[Yv];
     int cb = (Cbv - 128) * sat_pct / 100;   /* centered! */
@@ -400,6 +418,14 @@ static inline uint16_t ycc_to_rgb565(int Yv, int Cbv, int Crv)
     if (r < 0) r = 0; else if (r > 255) r = 255;
     if (g < 0) g = 0; else if (g > 255) g = 255;
     if (b < 0) b = 0; else if (b > 255) b = 255;
+    *ro = r; *go = g; *bo = b;
+}
+
+static inline uint16_t ycc_to_rgb565(int Yv, int Cbv, int Crv)
+{
+    int r, g, b;
+
+    ycc_to_rgb888(Yv, Cbv, Crv, &r, &g, &b);
     return (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
 }
 /* decode one MJPEG buffer to malloc'd YCbCr 3BPP (caller frees);
@@ -492,6 +518,8 @@ static void convert_frame(const uint8_t *ycbcr, int cw)
         uint16_t *dst = &panel_fb[py * PANEL_W];
         const int16_t *mrow = &src_map[py * PANEL_W * 2];
 
+        uint8_t *d6 = &panel_666[py * PANEL_W * 3];
+
         for (int px = 0; px < PANEL_W; px++)
         {
             int sx = mrow[px * 2], sy = mrow[px * 2 + 1];
@@ -499,10 +527,22 @@ static void convert_frame(const uint8_t *ycbcr, int cw)
             if (sx < 0)
             {
                 dst[px] = 0;
+                if (pix18) d6[px * 3] = d6[px * 3 + 1] = d6[px * 3 + 2] = 0;
                 continue;
             }
             const uint8_t *p = ycbcr + (sy * cw + sx) * 3;
-            dst[px] = ycc_to_rgb565(p[0], p[1], p[2]);
+            if (pix18)
+            {
+                int r, g, b;
+
+                ycc_to_rgb888(p[0], p[1], p[2], &r, &g, &b);
+                dst[px] = (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
+                d6[px * 3] = (uint8_t)r;
+                d6[px * 3 + 1] = (uint8_t)g;
+                d6[px * 3 + 2] = (uint8_t)b;
+            }
+            else
+                dst[px] = ycc_to_rgb565(p[0], p[1], p[2]);
         }
     }
 }
@@ -515,6 +555,8 @@ static void convert_yuyv_frame(const uint8_t *yuyv, int cw)
         uint16_t *dst = &panel_fb[py * PANEL_W];
         const int16_t *mrow = &src_map[py * PANEL_W * 2];
 
+        uint8_t *d6 = &panel_666[py * PANEL_W * 3];
+
         for (int px = 0; px < PANEL_W; px++)
         {
             int sx = mrow[px * 2], sy = mrow[px * 2 + 1];
@@ -522,11 +564,24 @@ static void convert_yuyv_frame(const uint8_t *yuyv, int cw)
             if (sx < 0)
             {
                 dst[px] = 0;
+                if (pix18) d6[px * 3] = d6[px * 3 + 1] = d6[px * 3 + 2] = 0;
                 continue;
             }
             const uint8_t *pair = yuyv + sy * cw * 2 + (sx & ~1) * 2;
-            dst[px] = ycc_to_rgb565(sx & 1 ? pair[2] : pair[0],
-                                      pair[1], pair[3]);
+            if (pix18)
+            {
+                int r, g, b;
+
+                ycc_to_rgb888(sx & 1 ? pair[2] : pair[0],
+                              pair[1], pair[3], &r, &g, &b);
+                dst[px] = (uint16_t)((r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3);
+                d6[px * 3] = (uint8_t)r;
+                d6[px * 3 + 1] = (uint8_t)g;
+                d6[px * 3 + 2] = (uint8_t)b;
+            }
+            else
+                dst[px] = ycc_to_rgb565(sx & 1 ? pair[2] : pair[0],
+                                        pair[1], pair[3]);
         }
     }
 }
@@ -535,7 +590,33 @@ static void blit(void)
 {
     /* spi_write_buf holds DC high and chunks at spidev's 4096-byte limit */
     LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
-    spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+    if (!pix18)
+    {
+        spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+        return;
+    }
+    /* COLMOD 0x06, ST7789VW datasheet 8.8.43: 3 bytes/pixel, each
+       component in D7..D2, D1..D0 don't care */
+    static uint8_t row18[PANEL_W * 3];
+
+    for (int py = 0; py < PANEL_H; py++)
+    {
+        const uint8_t *src = &panel_666[py * PANEL_W * 3];
+
+        for (int px = 0; px < PANEL_W * 3; px++)
+            row18[px] = src[px] & 0xFC;
+        spi_write_buf(row18, sizeof(row18));
+    }
+}
+
+/* text-only screen (scan state / bye) - COLMOD-agnostic via blit() */
+static void draw_text_screen(const char *s)
+{
+    memset(panel_fb, 0, sizeof(panel_fb));
+    if (pix18)
+        memset(panel_666, 0, sizeof(panel_666));
+    fb_string_t(s, 60, 120, LCD_WHITE);
+    blit();
 }
 
 /* ---------------- main ---------------- */
@@ -594,6 +675,11 @@ int main(int argc, char **argv)
                     cam_range_limited = 0;
                 }
                 break;
+            case '5':
+                pix18 = 0;   /* legacy 65K: washed (internal LUT) */
+                break;
+            case '6':        /* 18-bit: already the default */
+                break;
             default: arg_err = 1;
             }
         }
@@ -603,7 +689,7 @@ int main(int argc, char **argv)
         if (arg_err)
         {
             printf("usage: uvc_to_lcd [-G gamma_pct] [-S sat_pct] "
-                   "[-R full|lim]\n");
+                   "[-R full|lim] [-5 legacy 16-bit]\n");
             return 1;
         }
     }
@@ -617,6 +703,11 @@ int main(int argc, char **argv)
     printf("stage: LCD_Init\n");
     LCD_Init();
     LCD_SetAsciiFont(&ASCII_Font16);
+    if (pix18)
+    {
+        LCD_SetPix18(1);
+        printf("stage: COLMOD 18-bit (RGB666)\n");
+    }
 
     /* camera lifecycle: absent -> rescan every 2 s ("UVC NA" on screen);
        present -> stream; gone mid-stream -> release + rescan again */
@@ -650,8 +741,7 @@ int main(int argc, char **argv)
                 else if (!na_shown)
                 {
                     printf("uvc: no UVC camera found\n");
-                    LCD_Clear();
-                    LCD_DisplayString(60, 120, (char *)"UVC NA");
+                    draw_text_screen("UVC NA");
                     na_shown = 1;
                 }
             }
@@ -690,8 +780,7 @@ int main(int argc, char **argv)
                 dev = NULL;
                 timeouts = 0;
                 t_scan = 0;
-                LCD_Clear();
-                LCD_DisplayString(60, 120, (char *)"UVC NA");
+                draw_text_screen("UVC NA");
             }
             continue;
         }
@@ -755,17 +844,27 @@ int main(int argc, char **argv)
         double now = ts.tv_sec + ts.tv_nsec / 1e9;
         if (now - t_end >= 1.0)
         {
-            /* framebuffer average R/G/B - green-balance diagnostic */
+            /* displayed-data average R/G/B - color-balance diagnostic */
             unsigned long rs = 0, gs = 0, bs = 0;
 
-            for (int i = 0; i < PANEL_W * PANEL_H; i++)
+            if (pix18)
             {
-                uint16_t v = panel_fb[i];
-
-                rs += (v >> 11) & 0x1F;
-                gs += (v >> 5) & 0x3F;
-                bs += v & 0x1F;
+                for (int i = 0; i < PANEL_W * PANEL_H; i++)
+                {
+                    rs += panel_666[i * 3] >> 2;        /* as displayed: 6-bit */
+                    gs += panel_666[i * 3 + 1] >> 2;
+                    bs += panel_666[i * 3 + 2] >> 2;
+                }
             }
+            else
+                for (int i = 0; i < PANEL_W * PANEL_H; i++)
+                {
+                    uint16_t v = panel_fb[i];
+
+                    rs += (v >> 11) & 0x1F;
+                    gs += (v >> 5) & 0x3F;
+                    bs += v & 0x1F;
+                }
             unsigned npix = PANEL_W * PANEL_H;
 
             fps = frames;
@@ -773,8 +872,9 @@ int main(int argc, char **argv)
             t_end = now;
             snprintf(band, sizeof(band), "uh-%d  %u fps",
                      uh < 0 ? 0 : uh, fps);
-            printf("fps: %u   fb avg R=%lu G=%lu B=%lu (5-bit/6-bit/5-bit)\n",
-                   fps, rs / npix, gs / npix, bs / npix);
+            printf("fps: %u   fb avg R=%lu G=%lu B=%lu (%s)\n",
+                   fps, rs / npix, gs / npix, bs / npix,
+                   pix18 ? "6-bit/6-bit/6-bit" : "5-bit/6-bit/5-bit");
         }
     }
 
@@ -785,8 +885,7 @@ int main(int argc, char **argv)
     free(src_map);
     free(dev);
 
-    LCD_Clear();
-    LCD_DisplayString(60, 120, (char *)"bye");
+    draw_text_screen("bye");
     printf("bye\n");
     return 0;
 }
