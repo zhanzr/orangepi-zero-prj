@@ -3,7 +3,7 @@ CROSS      ?= arm-linux-gnueabihf-
 CROSS_FLAGS := -O2 -Wall -Wextra -march=armv7-a+neon-vfpv4 -mfloat-abi=hard -Iinclude -Ivendor
 LDLIBS     := -lm
 BOARD      ?= opz
-BOARD_DIR  ?= uvc_to_st7789_md169_240x280_spi
+BOARD_DIR  ?= st7789_md169_240x280_spi/uvc_to_lcd
 SOURCES    := uvc_to_lcd.c lcd.c spi_hw.c lcd.h spi_hw.h ref/lcd_fonts.c ref/lcd_fonts.h ref/lcd_font_1608.c ref/lcd_font_1608.h Makefile README.md
 
 all: $(TARGET)

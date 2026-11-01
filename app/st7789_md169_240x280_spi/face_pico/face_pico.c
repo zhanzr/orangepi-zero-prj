@@ -7,7 +7,7 @@
   intensity comparisons vs a CNN): expects ~10x faster passes at some
   accuracy cost. Same capture/panel stack, 18-bit RGB666 default.
 
-  Same capture/panel stack as app/uvc_to_st7789_md169_240x280_spi
+  Same capture/panel stack as app/st7789_md169_240x280_spi/uvc_to_lcd
   (18-bit RGB666 default), plus face detection:
 
   - vendored libfacedetection CNN (BSD, weights embedded in source -
@@ -37,7 +37,7 @@
 #include <pthread.h>
 
 #include "pico/picornt.h"
-#include "../facefinder_embed.h"
+#include "facefinder_embed.h"
 #include <fcntl.h>
 #include <signal.h>
 #include <setjmp.h>

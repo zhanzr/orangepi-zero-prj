@@ -27,5 +27,5 @@ clean:
 	rm -f $(TARGET) *.o
 
 BOARD ?= opz
-BOARD_DIR ?= uvc_qrscan_st7789_md169_240x280_spi
+BOARD_DIR ?= st7789_md169_240x280_spi/qr_scan
 .PHONY: all push-src board run clean

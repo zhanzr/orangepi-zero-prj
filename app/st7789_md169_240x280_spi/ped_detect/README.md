@@ -1,4 +1,4 @@
-# uvc_ped_detect_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/ped_detect
 
 UVC camera **pedestrian detection** on the ST7789V 1.69" 240x280 (MD169)
 SPI panel - Orange Pi Zero, using OpenCV's **HOG people detector**
@@ -18,7 +18,7 @@ OpenCV, no model download).
 ```bash
 sudo apt-get install -y build-essential libopencv-dev pkg-config
 # sources pushed by `make board` from WSL, then:
-cd uvc_ped_detect_st7789_md169_240x280_spi && make
+cd st7789_md169_240x280_spi/ped_detect && make
 ./ped_detect
 ```
 

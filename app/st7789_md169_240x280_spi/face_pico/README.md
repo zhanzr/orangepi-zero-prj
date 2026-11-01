@@ -1,4 +1,4 @@
-# uvc_face_pico_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/face_pico
 
 UVC camera face detection on the ST7789V 1.69" 240x280 (MD169) SPI
 panel, using the **pico** detector (nenadmarkus/pico, MIT): a cascade
@@ -25,5 +25,5 @@ make
 make push
 ```
 
-Run on the board: `cd uvc_face_pico_st7789_md169_240x280_spi && ./face_pico`.
+Run on the board: `cd st7789_md169_240x280_spi/face_pico && ./face_pico`.
 Stop other panel/camera apps first (single-open resources).

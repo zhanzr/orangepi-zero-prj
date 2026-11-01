@@ -1,4 +1,4 @@
-# uvc_object_detect_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/object_detect
 
 UVC camera **80-class object detection** (COCO: person, cup, laptop,
 cell phone...) on the ST7789V 1.69" 240x280 (MD169) SPI panel, using
@@ -27,6 +27,6 @@ make
 make push     # binary + model files
 ```
 
-Run on the board: `cd uvc_object_detect_st7789_md169_240x280_spi &&
+Run on the board: `cd st7789_md169_240x280_spi/object_detect &&
 ./object_detect`. Stop other panel/camera apps first (single-open
 resources).

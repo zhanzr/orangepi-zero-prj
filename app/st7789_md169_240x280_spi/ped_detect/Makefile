@@ -43,5 +43,5 @@ clean:
 	rm -f $(TARGET) *.o ref/*.o
 
 BOARD ?= opz
-BOARD_DIR ?= uvc_ped_detect_st7789_md169_240x280_spi
+BOARD_DIR ?= st7789_md169_240x280_spi/ped_detect
 .PHONY: all push-src board run clean

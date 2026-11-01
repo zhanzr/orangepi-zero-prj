@@ -1,9 +1,9 @@
-# uvc_face_detect_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/face_detect
 
 UVC camera **face detection** with live boxes on the ST7789V 1.69"
 240x280 (MD169) SPI panel - Orange Pi Zero (H2+/H3, Armbian).
 
-Same capture + panel stack as `app/uvc_to_st7789_md169_240x280_spi`
+Same capture + panel stack as `app/st7789_md169_240x280_spi/uvc_to_lcd`
 (18-bit RGB666 default, `-5` legacy 565, auto camera lifecycle,
 `UVC NA` + rescan) **plus face detection**:
 

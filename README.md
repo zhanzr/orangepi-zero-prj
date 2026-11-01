@@ -99,14 +99,14 @@ after enabling the overlays).
 | `app/st7789_md169_240x280_spi` | ST7789V 1.69" 240x280 SPI TFT on CON4 | hw SPI1 mode 0, DC PA1, RES PA6, V50/BLK 3.3V; **verified working** - proved the MD130 issue is mode-3-specific |
 | `app/rec_wav` | audio recorder | up to 30 s WAV, `q` early-stop, MP3/OGG/FLAC via on-board encoders; H3 codec (mic on CON5), PulseAudio disabled |
 | `app/netbench` | TCP throughput benchmark for end0 + wld1 | `make bench` runs both interfaces, both directions; results in its README |
-| `app/uvc_to_st7789_md169_240x280_spi` | UVC camera -> MD169 panel streamer | auto-detect, `uh-N` + fps band, `UVC NA` fallback; MJPEG via board libjpeg |
-| `app/uvc_face_detect_st7789_md169_240x280_spi` | face detection with boxes on the panel | vendored CNN weights (no training), detector thread ~430 ms, video unaffected |
-| `app/uvc_face_pico_st7789_md169_240x280_spi` | face detection, lighter: pico cascade | embedded facefinder, ~5-25 ms/pass |
-| `app/uvc_object_detect_st7789_md169_240x280_spi` | 80-class object detection on the panel | Yolo-Fastest + NCNN (vendored), ~280 ms/pass |
-| `app/uvc_qrscan_st7789_md169_240x280_spi` | QR/barcode reader on the panel | zbar, native board build |
-| `app/uvc_ped_detect_st7789_md169_240x280_spi` | pedestrian detection on the panel | OpenCV HOG (pre-trained), native board build |
-| `app/uvc_person_vis_st7789_md169_240x280_spi` | person-visible verdict on the panel | MLPerf-Tiny model via TFLM, ~460 ms |
-| `app/uvc_wake_word_st7789_md169_240x280_spi` | yes/no wake word on the panel | TFLM micro_speech + preprocessor model, H3 codec mic |
+| `app/st7789_md169_240x280_spi/uvc_to_lcd` | UVC camera -> MD169 panel streamer | auto-detect, `uh-N` + fps band, `UVC NA` fallback; MJPEG via board libjpeg |
+| `app/st7789_md169_240x280_spi/face_detect` | face detection with boxes on the panel | vendored CNN weights (no training), detector thread ~430 ms, video unaffected |
+| `app/st7789_md169_240x280_spi/face_pico` | face detection, lighter: pico cascade | embedded facefinder, ~5-25 ms/pass |
+| `app/st7789_md169_240x280_spi/object_detect` | 80-class object detection on the panel | Yolo-Fastest + NCNN (vendored), ~280 ms/pass |
+| `app/st7789_md169_240x280_spi/qr_scan` | QR/barcode reader on the panel | zbar, native board build |
+| `app/st7789_md169_240x280_spi/ped_detect` | pedestrian detection on the panel | OpenCV HOG (pre-trained), native board build |
+| `app/st7789_md169_240x280_spi/person_vis` | person-visible verdict on the panel | MLPerf-Tiny model via TFLM, ~460 ms |
+| `app/st7789_md169_240x280_spi/wake_word` | yes/no wake word on the panel | TFLM micro_speech + preprocessor model, H3 codec mic |
 | `app/e_server` | embedded web server (port 8080) | LED control, CPU temp plot, MJPEG camera `/stream`, board info; ported from mp157-dk1-prj |
 
 ## References

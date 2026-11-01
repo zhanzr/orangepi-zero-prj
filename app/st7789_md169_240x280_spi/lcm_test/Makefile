@@ -1,9 +1,9 @@
-TARGET     := st7789_demo
+TARGET     := lcm_test
 CROSS      ?= arm-linux-gnueabihf-
 CROSS_FLAGS := -O2 -Wall -Wextra -march=armv7-a+neon-vfpv4 -mfloat-abi=hard
 LDLIBS     := -lm
 BOARD      ?= opz
-BOARD_DIR  ?= st7789_md169_240x280_spi
+BOARD_DIR  ?= st7789_md169_240x280_spi/lcm_test
 SOURCES    := main.c lcd.c spi_hw.c lcd.h spi_hw.h logo64.h ref/lcd_fonts.c ref/lcd_fonts.h ref/lcd_font_1608.c ref/lcd_font_1608.h Makefile README.md
 
 all: $(TARGET)

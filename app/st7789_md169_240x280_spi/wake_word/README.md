@@ -1,4 +1,4 @@
-# uvc_wake_word_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/wake_word
 
 **"yes/no" keyword spotting** on the ST7789V 1.69" 240x280 (MD169)
 SPI panel, Orange Pi Zero — TensorFlow Lite Micro + the H3 codec mic.

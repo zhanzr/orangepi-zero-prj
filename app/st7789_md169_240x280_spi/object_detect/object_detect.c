@@ -2,7 +2,7 @@
   object_detect - UVC camera 80-class object detection with boxes on
   the ST7789V 1.69" 240x280 (MD169) SPI panel on the Orange Pi Zero.
 
-  Same capture/panel stack as app/uvc_to_st7789_md169_240x280_spi
+  Same capture/panel stack as app/st7789_md169_240x280_spi/uvc_to_lcd
   (18-bit RGB666 default), plus face detection:
 
   - vendored libfacedetection CNN (BSD, weights embedded in source -

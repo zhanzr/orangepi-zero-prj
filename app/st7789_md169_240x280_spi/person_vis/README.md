@@ -1,4 +1,4 @@
-# uvc_person_vis_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/person_vis
 
 **"Is a person visible?"** — MLPerf-Tiny person detection on the
 ST7789V 1.69" 240x280 (MD169) SPI panel, Orange Pi Zero.

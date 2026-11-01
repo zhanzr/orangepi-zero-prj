@@ -1,4 +1,4 @@
-# uvc_qrscan_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/qr_scan
 
 UVC camera **QR/barcode reader** on the ST7789V 1.69" 240x280 (MD169)
 SPI panel - Orange Pi Zero, using **zbar** (LGPL-2.1, board package
@@ -17,7 +17,7 @@ SPI panel - Orange Pi Zero, using **zbar** (LGPL-2.1, board package
 ```bash
 sudo apt-get install -y build-essential libzbar-dev
 # sources pushed by `make board` from WSL, then:
-cd uvc_qrscan_st7789_md169_240x280_spi && make
+cd st7789_md169_240x280_spi/qr_scan && make
 ./qr_scan
 ```
 

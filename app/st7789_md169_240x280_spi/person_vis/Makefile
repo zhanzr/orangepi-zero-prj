@@ -6,13 +6,13 @@ CROSS      ?= arm-linux-gnueabihf-
 CXX        := $(CROSS)g++-12
 CROSS_FLAGS := -O2 -Wall -Wextra -march=armv7-a+neon-vfpv4 -mfloat-abi=hard \
                -Iinclude -I. -Iref \
-               -Iref -I../vendor/tflm/inc
+               -Iref -I../../vendor/tflm/inc
 BOARD      ?= opz
-BOARD_DIR  ?= uvc_person_vis_st7789_md169_240x280_spi
+BOARD_DIR  ?= st7789_md169_240x280_spi/person_vis
 
 all: $(TARGET)
 
-$(TARGET): person_vis.cpp model_settings.cc model_settings.h lcd.c spi_hw.c ref/lcd_fonts.c ref/lcd_font_1608.c ../vendor/tflm/lib/libtensorflow-microlite.a
+$(TARGET): person_vis.cpp model_settings.cc model_settings.h lcd.c spi_hw.c ref/lcd_fonts.c ref/lcd_font_1608.c ../../vendor/tflm/lib/libtensorflow-microlite.a
 	$(CROSS)gcc $(CROSS_FLAGS) -c lcd.c -o lcd.o
 	$(CROSS)gcc $(CROSS_FLAGS) -c spi_hw.c -o spi_hw.o
 	$(CROSS)gcc $(CROSS_FLAGS) -c ref/lcd_fonts.c -o ref/lcd_fonts.o
@@ -20,7 +20,7 @@ $(TARGET): person_vis.cpp model_settings.cc model_settings.h lcd.c spi_hw.c ref/
 	$(CXX) $(CROSS_FLAGS) -c model_settings.cc -o model_settings.o
 	$(CXX) $(CROSS_FLAGS) -c person_vis.cpp -o person_vis.o
 	$(CXX) $(CROSS_FLAGS) -o $@ person_vis.o model_settings.o lcd.o spi_hw.o \
-		ref/lcd_fonts.o ref/lcd_font_1608.o ../vendor/tflm/lib/libtensorflow-microlite.a \
+		ref/lcd_fonts.o ref/lcd_font_1608.o ../../vendor/tflm/lib/libtensorflow-microlite.a \
 		-lm -lpthread
 
 push: $(TARGET)

@@ -3,7 +3,7 @@ CROSS      ?= arm-linux-gnueabihf-
 CXX        := $(CROSS)g++
 CROSS_FLAGS := -O2 -Wall -Wextra -march=armv7-a+neon-vfpv4 -mfloat-abi=hard -Iinclude -Ivendor
 BOARD      ?= opz
-BOARD_DIR  ?= uvc_face_detect_st7789_md169_240x280_spi
+BOARD_DIR  ?= st7789_md169_240x280_spi/face_detect
 
 DETOBJ := vendor/facedetect/facedetectcnn.o \
           vendor/facedetect/facedetectcnn-model.o \

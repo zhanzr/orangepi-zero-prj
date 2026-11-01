@@ -1,4 +1,4 @@
-# uvc_to_st7789_md169_240x280_spi
+# st7789_md169_240x280_spi/uvc_to_lcd
 
 Stream a UVC camera to the ST7789V 1.69" 240x280 (MD169) SPI panel on
 the Orange Pi Zero (hw SPI1 mode 0, same transport as
