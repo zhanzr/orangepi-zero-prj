@@ -88,29 +88,6 @@ internal die temperature above - not usable for external signals. For
 real analog inputs, add an external I2C/SPI ADC (26-pin header has I2C/SPI,
 after enabling the overlays).
 
-## Applications
-
-| App | What it drives | Notes |
-|---|---|---|
-| `app/hello` | - | toolchain smoke test |
-| `app/blink_hello` | both LEDs (green pwr / red status) + die temp | alternate blink, restores triggers on exit; runs without root (LED group delegation) |
-| `app/coremark` | - | EEMBC CoreMark 1.0, ARM + Thumb-2, results in its README |
-| `app/ssd1317_md066_64x48_iic` | SSD1317 64x48 I2C OLED on CON4.3/5 + RES PA6 | ported from rk3506-dev; runs without root |
-| `app/ili9163c_md144_128x128_spi` | ILI9163C 1.44" 128x128 SPI LCD on CON4 | hw SPI1 (`/dev/spidev1.0`), RES PA6 (CON4.7, shared - one module at a time); runs without root |
-| `app/st7789_md130_240x240` | ST7789V 1.3" 240x240 SPI TFT on CON4 | hw SPI1 mode 3, DC PA1, RES PA6, BLK 3.3V full-on; **stuck after first frame - mode 3 on sunxi SPI1 implicated, `docs/st7789_md130_issue.md`** |
-| `app/st7789_md169_240x280_spi` | ST7789V 1.69" 240x280 SPI TFT on CON4 | hw SPI1 mode 0, DC PA1, RES PA6, V50/BLK 3.3V; **verified working** - proved the MD130 issue is mode-3-specific |
-| `app/rec_wav` | audio recorder | up to 30 s WAV, `q` early-stop, MP3/OGG/FLAC via on-board encoders; H3 codec (mic on CON5), PulseAudio disabled |
-| `app/netbench` | TCP throughput benchmark for end0 + wld1 | `make bench` runs both interfaces, both directions; results in its README |
-| `app/st7789_md169_240x280_spi/uvc_to_lcd` | UVC camera -> MD169 panel streamer | auto-detect, `uh-N` + fps band, `UVC NA` fallback; MJPEG via board libjpeg |
-| `app/st7789_md169_240x280_spi/face_detect` | face detection with boxes on the panel | vendored CNN weights (no training), detector thread ~430 ms, video unaffected |
-| `app/st7789_md169_240x280_spi/face_pico` | face detection, lighter: pico cascade | embedded facefinder, ~5-25 ms/pass |
-| `app/st7789_md169_240x280_spi/object_detect` | 80-class object detection on the panel | Yolo-Fastest + NCNN (vendored), ~280 ms/pass |
-| `app/st7789_md169_240x280_spi/qr_scan` | QR/barcode reader on the panel | zbar, native board build |
-| `app/st7789_md169_240x280_spi/ped_detect` | pedestrian detection on the panel | OpenCV HOG (pre-trained), native board build |
-| `app/st7789_md169_240x280_spi/person_vis` | person-visible verdict on the panel | MLPerf-Tiny model via TFLM, ~460 ms |
-| `app/st7789_md169_240x280_spi/wake_word` | yes/no wake word on the panel | TFLM micro_speech + preprocessor model, H3 codec mic |
-| `app/st7789_md169_240x280_spi/e_server` | embedded web server (port 8080) | LED control, CPU temp plot, MJPEG camera `/stream`, board info; ported from mp157-dk1-prj |
-
 ## References
 
 - H2+ datasheet: `D:\board_database\orangepi-zero\Allwinner_H2+_Datasheet_V1.2.pdf`
