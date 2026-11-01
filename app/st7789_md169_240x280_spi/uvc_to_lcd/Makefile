@@ -13,7 +13,7 @@ $(TARGET): uvc_to_lcd.c lcd.c spi_hw.c lcd.h spi_hw.h ref/lcd_fonts.c ref/lcd_fo
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET)"
 
 run:

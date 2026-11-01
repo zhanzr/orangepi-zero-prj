@@ -17,7 +17,7 @@ $(TARGET_HOST): netbench.c Makefile
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET)"
 
 # full 4-way benchmark: start the server on the board, run the host

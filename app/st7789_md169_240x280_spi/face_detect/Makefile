@@ -30,7 +30,7 @@ $(TARGET): face_detect.c lcd.c spi_hw.c ref/lcd_fonts.c ref/lcd_font_1608.c $(DE
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET)"
 
 run:

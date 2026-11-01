@@ -21,8 +21,8 @@ $(TARGET): object_detect.c lcd.c spi_hw.c ref/lcd_fonts.c ref/lcd_font_1608.c yo
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)/vendor/ncnn_model"
-	scp -q $(TARGET) $(BOARD):$(BOARD_DIR)/
-	scp -q vendor/ncnn_model/yolo-fastest-1.1.param vendor/ncnn_model/yolo-fastest-1.1.bin $(BOARD):$(BOARD_DIR)/vendor/ncnn_model/
+	rsync -az $(TARGET) $(BOARD):$(BOARD_DIR)/
+	rsync -az vendor/ncnn_model/yolo-fastest-1.1.param vendor/ncnn_model/yolo-fastest-1.1.bin $(BOARD):$(BOARD_DIR)/vendor/ncnn_model/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET)"
 
 run:

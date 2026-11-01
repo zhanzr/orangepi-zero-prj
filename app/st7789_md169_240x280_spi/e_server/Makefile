@@ -52,7 +52,7 @@ BOARD_DIR ?= e_server
 
 push: e_server$(EXT)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q e_server$(EXT) $(BOARD):$(BOARD_DIR)/
+	rsync -az e_server$(EXT) $(BOARD):$(BOARD_DIR)/
 
 run-remote:
 	ssh -t $(BOARD) "cd $(BOARD_DIR) && ./e_server 8080"

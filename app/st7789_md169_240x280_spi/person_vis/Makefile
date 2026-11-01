@@ -25,7 +25,7 @@ $(TARGET): person_vis.cpp model_settings.cc model_settings.h lcd.c spi_hw.c ref/
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) person_detect.tflite $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) person_detect.tflite $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET)"
 
 run:

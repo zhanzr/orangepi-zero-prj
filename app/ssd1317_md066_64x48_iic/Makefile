@@ -16,7 +16,7 @@ $(TARGET2): lcm_logo.c oled.c oledfont.c oled.h logo64.h
 
 push: $(TARGET) $(TARGET2)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) $(TARGET2) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) $(TARGET2) $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET) $(TARGET2)"
 
 run: run-demo
@@ -33,7 +33,7 @@ scan:
 
 deploy:
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(SOURCES) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(SOURCES) $(BOARD):$(BOARD_DIR)/
 
 build-remote:
 	ssh $(BOARD) "cd $(BOARD_DIR) && make CC=gcc"

@@ -12,14 +12,14 @@ $(TARGET): $(TARGET).c
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) $(BOARD):$(BOARD_DIR)/
 
 run:
 	ssh $(BOARD) "./$(BOARD_DIR)/$(TARGET)"
 
 deploy:
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(SOURCES) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(SOURCES) $(BOARD):$(BOARD_DIR)/
 
 build-remote:
 	ssh $(BOARD) "cd $(BOARD_DIR) && make CC=gcc"

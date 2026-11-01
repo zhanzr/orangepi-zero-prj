@@ -14,8 +14,8 @@ $(TARGET): $(SRCS) lcd.h spi_hw.h ref/lcd_fonts.h ref/lcd_font_1608.h
 
 push-src: $(SRCS) lcd.h spi_hw.h ref/lcd_fonts.h ref/lcd_font_1608.h Makefile README.md
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q qr_scan.c lcd.c lcd.h spi_hw.c spi_hw.h Makefile README.md $(BOARD):$(BOARD_DIR)/
-	scp -qr ref $(BOARD):$(BOARD_DIR)/
+	rsync -az qr_scan.c lcd.c lcd.h spi_hw.c spi_hw.h Makefile README.md $(BOARD):$(BOARD_DIR)/
+	rsync -az ref $(BOARD):$(BOARD_DIR)/
 
 board: push-src
 	ssh $(BOARD) "cd $(BOARD_DIR) && make && chmod 755 $(TARGET)"

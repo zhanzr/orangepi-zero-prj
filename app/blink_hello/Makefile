@@ -12,7 +12,7 @@ $(TARGET): $(TARGET).c
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) $(BOARD):$(BOARD_DIR)/
 
 # runs as the dev user - the board has a udev rule (tools/leds.rules,
 # installed by tools/setup_led_group.sh) that allows group "leds" to
@@ -22,7 +22,7 @@ run:
 
 deploy:
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(SOURCES) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(SOURCES) $(BOARD):$(BOARD_DIR)/
 
 build-remote:
 	ssh $(BOARD) "cd $(BOARD_DIR) && make CC=gcc"

@@ -30,8 +30,8 @@ $(TARGET): ped_detect.o lcd.o spi_hw.o ref/lcd_fonts.o ref/lcd_font_1608.o
 
 push-src: ped_detect.cpp lcd.c lcd.h spi_hw.c spi_hw.h Makefile README.md ref/lcd_fonts.c ref/lcd_fonts.h ref/lcd_font_1608.c ref/lcd_font_1608.h
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q ped_detect.cpp lcd.c lcd.h spi_hw.c spi_hw.h Makefile README.md $(BOARD):$(BOARD_DIR)/
-	scp -qr ref $(BOARD):$(BOARD_DIR)/
+	rsync -az ped_detect.cpp lcd.c lcd.h spi_hw.c spi_hw.h Makefile README.md $(BOARD):$(BOARD_DIR)/
+	rsync -az ref $(BOARD):$(BOARD_DIR)/
 
 board: push-src
 	ssh $(BOARD) "cd $(BOARD_DIR) && make && chmod 755 $(TARGET)"

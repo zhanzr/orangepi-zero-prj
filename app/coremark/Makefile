@@ -23,7 +23,7 @@ coremark-thumb: $(SOURCES)
 
 push: all
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGETS) $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGETS) $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGETS)"
 
 run:

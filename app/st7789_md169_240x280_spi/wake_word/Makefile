@@ -20,12 +20,12 @@ $(TARGET): wake_word.cpp lcd.c spi_hw.c ref/lcd_fonts.c ref/lcd_font_1608.c ../.
 		-Lvendor -l:libasound.so.2 -lm -lpthread
 
 vendor/libasound.so.2:
-	scp -q $(BOARD):/usr/lib/arm-linux-gnueabihf/libasound.so.2.0.0 vendor/ && \
+	rsync -az $(BOARD):/usr/lib/arm-linux-gnueabihf/libasound.so.2.0.0 vendor/ && \
 	ln -sf libasound.so.2.0.0 vendor/libasound.so.2
 
 push: $(TARGET)
 	ssh $(BOARD) "mkdir -p $(BOARD_DIR)"
-	scp -q $(TARGET) audio_preprocessor_int8.tflite micro_speech_quantized.tflite $(BOARD):$(BOARD_DIR)/
+	rsync -az $(TARGET) audio_preprocessor_int8.tflite micro_speech_quantized.tflite $(BOARD):$(BOARD_DIR)/
 	ssh $(BOARD) "cd $(BOARD_DIR) && chmod 755 $(TARGET)"
 
 run:

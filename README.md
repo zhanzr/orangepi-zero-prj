@@ -1,5 +1,7 @@
 # opz-dev Software Repository
 
+
+**AI agents: read `AGENT.md` first** — board rules, build/deploy patterns and known pitfalls.
 Development repository for the Orange Pi Zero (Allwinner H2+, quad
 Cortex-A7 @ 1.296 GHz, 512 MiB DDR3) running
 **Armbian community 26.11.0-trunk.108** (Ubuntu "resolute" base, kernel
