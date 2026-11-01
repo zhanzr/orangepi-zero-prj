@@ -35,3 +35,4 @@ Thumbs.db
 /app/st7789_md169_240x280_spi/wake_word/wake_word
 /app/st7789_md169_240x280_spi/qr_scan/qr_scan.o
 /app/st7789_md169_240x280_spi/lcm_test/lcm_test
+/app/st7789_md169_240x280_spi/lcm_test/st7789_demo
