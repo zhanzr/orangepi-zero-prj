@@ -3,8 +3,8 @@
   (MD169) SPI panel on the Orange Pi Zero, using zbar (LGPL-2.1,
   board package libzbar-dev; built natively on the board).
 
-  Same capture/panel stack as the other uvc_* apps (18-bit RGB666
-  default). The luma plane is handed straight to zbar as Y800 every
+  Same capture/panel stack as the other uvc_* apps (RGB565 by default;
+  pass -6 for RGB666). The luma plane is handed straight to zbar as Y800 every
   frame (a scan takes single-digit ms); on a decode the text is drawn
   over the live view and printed to the log.
 
@@ -39,7 +39,7 @@
 
 static uint16_t panel_fb[PANEL_W * PANEL_H];
 static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
-static int pix18 = 1;                            /* COLMOD 0x06 (RGB666) */
+static int pix18 = 0;                            /* RGB565 default; -6 for RGB666 */
 
 static volatile sig_atomic_t quit_req = 0;
 static void on_signal(int sig) { (void)sig; quit_req = 1; }
@@ -196,7 +196,7 @@ static void blit(void)
     LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
     if (!pix18)
     {
-        spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+        spi_write_pixels16(panel_fb, PANEL_W * PANEL_H);
         return;
     }
     /* COLMOD 0x06: 3 bytes/pixel, component in D7..D2 (datasheet 8.8.43).
@@ -380,10 +380,10 @@ static void panel_init(void)
     LCD_Init();
     LCD_SetAsciiFont(&ASCII_Font16);
     LCD_Clear();
-    if (pix18)
-        LCD_SetPix18(1);
+    LCD_SetPix18(pix18);
     panel_ok = 1;
-    printf("panel: MD169 enabled%s\n", pix18 ? " (18-bit RGB666)" : "");
+    printf("panel: MD169 enabled (%s)\n",
+           pix18 ? "18-bit RGB666" : "16-bit RGB565");
     fflush(stdout);
 }
 
@@ -396,10 +396,20 @@ static void scan_msleep(void)
 
 int main(int argc, char **argv)
 {
-    (void)argc; (void)argv;
     setvbuf(stdout, NULL, _IONBF, 0);
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "-6") == 0)
+            pix18 = 1;
+        else if (strcmp(argv[i], "-5") != 0)
+        {
+            fprintf(stderr, "usage: qr_scan [-6 RGB666]\n");
+            return 1;
+        }
+    }
 
     panel_init();
     if (!panel_ok)

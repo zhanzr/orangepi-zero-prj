@@ -532,10 +532,7 @@ static volatile int stream_busy;
 #define PANEL_BAND 24
 static uint16_t panel_fb[PANEL_W * PANEL_H];
 static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
-/* 18-bit RGB666 default: the chip's internal 565->666 LUT (datasheet
- * 8.8.42, contents undocumented) is NOT bit-replication - empirically
- * it washes colors vs browser; feeding our own 6-bit values matches. */
-static int panel_18bit = 1;                      /* COLMOD 0x06 (RGB666) */
+static int panel_18bit = 0;                      /* RGB565 default; -6 for RGB666 */
 static int16_t *panel_map;
 static int panel_ok;
 
@@ -775,7 +772,7 @@ static void panel_blit(void)
   LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
   if (!panel_18bit)
   {
-    spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+    spi_write_pixels16(panel_fb, PANEL_W * PANEL_H);
     return;
   }
   /* COLMOD 0x06, ST7789VW datasheet 8.8.43: 3 bytes/pixel, each component
@@ -800,11 +797,10 @@ static void panel_init(void)
   LCD_Init();
   LCD_SetAsciiFont(&ASCII_Font16);
   LCD_Clear();
-  if (panel_18bit)
-    LCD_SetPix18(1);
+  LCD_SetPix18(panel_18bit);
   panel_ok = 1;
-  printf("panel: MD169 mirror enabled%s\n",
-         panel_18bit ? " (18-bit RGB666)" : "");
+  printf("panel: MD169 mirror enabled (%s)\n",
+         panel_18bit ? "18-bit RGB666" : "16-bit RGB565");
   fflush(stdout);
 }
 
@@ -1239,7 +1235,7 @@ int main(int argc, char **argv)
 {
   int port = 8080;
 
-  /* argv: [port] [-G<gamma%%>] [-S<sat%%>] [-5]  e.g. ./e_server 8080 -G130 -S125 */
+  /* argv: [port] [-G<gamma%%>] [-S<sat%%>] [-5|-6] */
   for (int i = 1; i < argc; i++)
   {
     if (strncmp(argv[i], "-G", 2) == 0 && argv[i][2])
@@ -1247,9 +1243,9 @@ int main(int argc, char **argv)
     else if (strncmp(argv[i], "-S", 2) == 0 && argv[i][2])
       panel_sat_pct = atoi(argv[i] + 2);
     else if (strcmp(argv[i], "-5") == 0)
-      panel_18bit = 0;         /* legacy 65K: washed (internal LUT), see docs */
+      panel_18bit = 0;
     else if (strcmp(argv[i], "-6") == 0)
-      ;                        /* 18-bit: already the default */
+      panel_18bit = 1;
     else
       port = atoi(argv[i]);
   }
@@ -1281,9 +1277,9 @@ int main(int argc, char **argv)
   printf("  page: %u bytes gzip (index_html_gz), %u embedded public files\n",
          (unsigned)index_html_gz_len, (unsigned)embedded_files_count);
   printf("  GET /api/leds | POST /api/leds | GET /api/adc | GET /api/info | GET /stream\n");
-  printf("  panel: gamma %d%%, saturation %d%%, %s (-G/-S; -5 = legacy 16-bit)\n",
+  printf("  panel: gamma %d%%, saturation %d%%, %s (-G/-S; -6 = RGB666)\n",
          panel_gamma_pct, panel_sat_pct,
-         panel_18bit ? "RGB666 (default)" : "RGB565 (legacy)");
+         panel_18bit ? "RGB666" : "RGB565 (default)");
   printf("  (Ctrl-C to stop)\n");
   detect_cam_uh();
 

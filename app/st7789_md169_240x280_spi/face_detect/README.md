@@ -4,7 +4,7 @@ UVC camera **face detection** with live boxes on the ST7789V 1.69"
 240x280 (MD169) SPI panel - Orange Pi Zero (H2+/H3, Armbian).
 
 Same capture + panel stack as `app/st7789_md169_240x280_spi/uvc_to_lcd`
-(18-bit RGB666 default, `-5` legacy 565, auto camera lifecycle,
+(RGB565 default, `-6` for RGB666, auto camera lifecycle,
 `UVC NA` + rescan) **plus face detection**:
 
 ## Detector
@@ -41,7 +41,8 @@ Band OSD on the panel: `uh-3 15 fps 1f 441ms`.
 
 ## Tunables
 
-Same flags as uvc_to_lcd: `[-G gamma%] [-S sat%] [-R lim|full] [-5]`.
+Same flags as uvc_to_lcd: `[-G gamma%] [-S sat%] [-R lim|full] [-6]`.
+RGB565 is the default; `-6` selects RGB666.
 Detection input size is a `#define` (DET_W/DET_H): 320x240 detects
 faces down to roughly arm's length from this camera; shrink to 240x180
 for more speed at the cost of range.

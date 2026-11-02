@@ -5,8 +5,8 @@ SPI panel - Orange Pi Zero, using OpenCV's **HOG people detector**
 (Dalal-Triggs SVM, `getDefaultPeopleDetector` - pre-trained, ships with
 OpenCV, no model download).
 
-- same capture/panel stack as the other uvc_* apps (18-bit RGB666
-  default, auto camera lifecycle, `uh-N` + fps band)
+- same capture/panel stack as the other uvc_* apps (RGB565 default,
+  `-6` for RGB666, auto camera lifecycle, `uh-N` + fps band)
 - 320x240 luma sample -> detector pthread (video keeps streaming at
   15 fps); green 2 px boxes mapped through the panel rotation
 - band OSD: `uh-N <fps> fps <n>p <det>ms`
@@ -19,8 +19,9 @@ OpenCV, no model download).
 sudo apt-get install -y build-essential libopencv-dev pkg-config
 # sources pushed by `make board` from WSL, then:
 cd st7789_md169_240x280_spi/ped_detect && make
-./ped_detect
+./ped_detect [-6]
 ```
 
 Stop other panel/camera apps first (single-open resources). Expect
 ~300-700 ms per detection pass on the H3.
+Pass `-6` to select RGB666; RGB565 is the default.

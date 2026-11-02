@@ -3,7 +3,7 @@
   1.69" 240x280 (MD169) SPI panel on the Orange Pi Zero.
 
   Same capture/panel stack as app/st7789_md169_240x280_spi/uvc_to_lcd
-  (18-bit RGB666 default), plus face detection:
+  (RGB565 default, -6 for RGB666), plus face detection:
 
   - vendored libfacedetection CNN (BSD, weights embedded in source -
     no training, no runtime deps), ARM NEON enabled
@@ -60,10 +60,7 @@
 
 static uint16_t panel_fb[PANEL_W * PANEL_H];
 static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
-/* 18-bit RGB666 default: the chip's internal 565->666 LUT (datasheet
- * 8.8.42, undocumented) washes colors; our own 6-bit values match the
- * browser view. */
-static int pix18 = 1;                            /* COLMOD 0x06 (RGB666) */
+static int pix18 = 0;                            /* RGB565 default; -6 for RGB666 */
 
 /* camera capture request: format+size auto-selected per camera
    (YUYV preferred raw, else MJPEG via libjpeg; largest fit <= 640x480) */
@@ -773,7 +770,7 @@ static void blit(void)
     LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
     if (!pix18)
     {
-        spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+        spi_write_pixels16(panel_fb, PANEL_W * PANEL_H);
         return;
     }
     /* COLMOD 0x06, ST7789VW datasheet 8.8.43: 3 bytes/pixel, each
@@ -857,9 +854,10 @@ int main(int argc, char **argv)
                 }
                 break;
             case '5':
-                pix18 = 0;   /* legacy 65K: washed (internal LUT) */
+                pix18 = 0;
                 break;
-            case '6':        /* 18-bit: already the default */
+            case '6':
+                pix18 = 1;
                 break;
             default: arg_err = 1;
             }
@@ -870,7 +868,7 @@ int main(int argc, char **argv)
         if (arg_err)
         {
             printf("usage: face_detect [-G gamma_pct] [-S sat_pct] "
-                   "[-R full|lim] [-5 legacy 16-bit]\n");
+                   "[-R full|lim] [-5 RGB565] [-6 RGB666]\n");
             return 1;
         }
     }
@@ -884,11 +882,9 @@ int main(int argc, char **argv)
     printf("stage: LCD_Init\n");
     LCD_Init();
     LCD_SetAsciiFont(&ASCII_Font16);
-    if (pix18)
-    {
-        LCD_SetPix18(1);
-        printf("stage: COLMOD 18-bit (RGB666)\n");
-    }
+    LCD_SetPix18(pix18);
+    printf("stage: COLMOD %s\n", pix18 ? "18-bit (RGB666)" :
+                                          "16-bit (RGB565)");
     pthread_t det_tid;
 
     pthread_create(&det_tid, NULL, det_thread, NULL);

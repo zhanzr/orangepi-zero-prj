@@ -20,6 +20,10 @@ Panel notes (verified on this module):
   font scales, info page (pixel format, SPI speed, UVC host probe)
 - `uvc_to_lcd/` — UVC camera viewer: crop-fill center (no letterbox),
   OSD line (mode/SPI/host) over the video, fps counter on the frame;
-  camera auto-detect + lifecycle (UVC NA + rescan)
+  camera auto-detect + lifecycle (UVC NA + rescan). RGB565 is the
+  default; pass `-6` for RGB666.
 - `whiteband_test/` — write-path isolator for the top strip
   (rows 0..27): cycles black+text / white / black
+
+`lcm_test` and `whiteband_test` use RGB565 only; `-6` is available on
+`uvc_to_lcd`, which has both pixel-format paths.

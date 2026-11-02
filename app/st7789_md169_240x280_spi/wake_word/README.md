@@ -28,7 +28,7 @@ two interpreters, two arenas (pre 8.5 KB, speech 6.8 KB).
   `libasound.so.2` (same method as `app/rec_wav`)
 - enables the codec capture route at startup (`amixer ... cap`) —
   the route ships disabled, which silently yields all-zero audio
-- MD169 panel over SPI1 (18-bit RGB666)
+- MD169 panel over SPI1 (RGB565 default; pass `-6` for RGB666)
 - 1 s ring buffer (capture pthread) -> main loop re-runs feature
   extraction + speech model ~2x per second
 
@@ -40,7 +40,8 @@ two interpreters, two arenas (pre 8.5 KB, speech 6.8 KB).
 
 ## Microphone choice
 
-`-d <alsa_dev>` selects the capture device (see `rec_wav -l`).
+`-d <alsa_dev>` selects the capture device (see `rec_wav -l`); `-6`
+selects RGB666 panel output.
 Measured: the **USB webcam's mic** (`-d plughw:1,0`) is cleaner than
 the board codec mic (fewer clipped samples, no board-rail whine) —
 recommended when the camera is attached.

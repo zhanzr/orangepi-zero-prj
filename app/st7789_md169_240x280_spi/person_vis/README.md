@@ -19,7 +19,9 @@ ST7789V 1.69" 240x280 (MD169) SPI panel, Orange Pi Zero.
 ## Board features used
 
 - UVC camera (YUYV 640x480) via V4L2 MMAP, auto lifecycle
-- MD169 panel over SPI1 (18-bit RGB666 default)
+- MD169 panel over SPI1 (RGB565 default; pass `-6` for RGB666)
+
+Run `./person_vis [-6]` to select RGB666.
 - NEON via `-march=armv7-a+neon-vfpv4` (TFLM generic kernels)
 
 ## Run characteristics (measured on the H3)

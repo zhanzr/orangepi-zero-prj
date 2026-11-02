@@ -46,7 +46,7 @@
 
 static uint16_t panel_fb[PANEL_W * PANEL_H];
 static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
-static int pix18 = 1;                            /* COLMOD 0x06 (RGB666) */
+static int pix18 = 0;                            /* RGB565 default; -6 for RGB666 */
 static char barbuf[40];                          /* top bar: mode/SPI/uh */
 static char fpsbuf[16];                          /* fps text over the view */
 static void blit(void);                          /* forward */
@@ -658,7 +658,8 @@ static void blit(void)
     LCD_SetAddress(0, 0, PANEL_W - 1, PANEL_H - 1);
     if (!pix18)
     {
-        spi_write_buf((const uint8_t *)panel_fb, sizeof(panel_fb));
+        for (int py = 0; py < PANEL_H; py++)
+            spi_write_pixels16(&panel_fb[py * PANEL_W], PANEL_W);
         return;
     }
     /* COLMOD 0x06: 3 bytes/pixel, each component in D7..D2 */
@@ -740,9 +741,10 @@ int main(int argc, char **argv)
                 }
                 break;
             case '5':
-                pix18 = 0;   /* legacy 65K: washed (internal LUT) */
+                pix18 = 0;
                 break;
-            case '6':        /* 18-bit: already the default */
+            case '6':
+                pix18 = 1;
                 break;
             default: arg_err = 1;
             }
@@ -753,7 +755,7 @@ int main(int argc, char **argv)
         if (arg_err)
         {
             printf("usage: uvc_to_lcd [-G gamma_pct] [-S sat_pct] "
-                   "[-R full|lim] [-5 legacy 16-bit]\n");
+                   "[-R full|lim] [-5 RGB565] [-6 RGB666]\n");
             return 1;
         }
     }
@@ -767,11 +769,9 @@ int main(int argc, char **argv)
     printf("stage: LCD_Init\n");
     LCD_Init();
     LCD_SetAsciiFont(&ASCII_Font16);
-    if (pix18)
-    {
-        LCD_SetPix18(1);
-        printf("stage: COLMOD 18-bit (RGB666)\n");
-    }
+    LCD_SetPix18(pix18);
+    printf("stage: COLMOD %s\n", pix18 ? "18-bit (RGB666)" :
+                                          "16-bit (RGB565)");
 
     /* camera lifecycle: absent -> rescan every 2 s ("UVC NA" on screen);
        present -> stream; gone mid-stream -> release + rescan again */

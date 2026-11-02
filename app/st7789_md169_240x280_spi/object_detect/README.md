@@ -19,6 +19,7 @@ inference framework, NEON, no runtime deps).
 - detector pthread: measured **~280 ms per pass** on the H3 while
   video streams at 13-14 fps; boxes + class label + score drawn on the
   panel (both buffers); band OSD `uh-N <fps> fps <n>o <ms>ms`
+- panel output defaults to RGB565; pass `-6` for RGB666
 
 ## Build & deploy (WSL cross)
 
