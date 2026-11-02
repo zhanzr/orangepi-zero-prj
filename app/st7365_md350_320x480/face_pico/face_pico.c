@@ -64,8 +64,7 @@ static uint16_t panel_fb[PANEL_W * PANEL_H];
 static uint8_t panel_666[PANEL_W * PANEL_H * 3]; /* 8-bit comps, shown 6-bit */
 static int pix18 = 0;                            /* RGB565 default; -6 for RGB666 */
 
-/* camera capture request: format+size auto-selected per camera
-   (YUYV preferred raw, else MJPEG via libjpeg; largest fit <= 640x480) */
+/* camera capture requires exact 640x480 YUYV or MJPEG */
 
 /* ---- face detection (pico cascade, embedded facefinder) ----
    det_gray: half-res GRAYSCALE sample, built by det_publish() */
@@ -82,7 +81,7 @@ static pthread_mutex_t det_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t det_cond = PTHREAD_COND_INITIALIZER;
 static int det_pending = 0;          /* det_bgr holds an undetected frame */
 static int det_ms = 0;
-static volatile int det_quit = 0;
+static int det_quit = 0;
 
 struct det_box
 {
@@ -127,13 +126,14 @@ static void det_publish(const uint8_t *src, int cw, int ch, int is_yuyv)
 static void *det_thread(void *arg)
 {
     (void)arg;
-    while (!det_quit)
+    for (;;)
     {
         pthread_mutex_lock(&det_lock);
         while (!det_pending && !det_quit)
             pthread_cond_wait(&det_cond, &det_lock);
+        int quit = det_quit;
         pthread_mutex_unlock(&det_lock);
-        if (det_quit)
+        if (quit)
             break;
 
         float rcsq[4 * 256];
@@ -145,10 +145,10 @@ static void *det_thread(void *arg)
                              1.15f, 0.1f, 48, 240);
         n = cluster_detections(rcsq, n);
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        det_ms = (int)((t1.tv_sec - t0.tv_sec) * 1000 +
-                       (t1.tv_nsec - t0.tv_nsec) / 1000000);
 
         pthread_mutex_lock(&det_lock);
+        det_ms = (int)((t1.tv_sec - t0.tv_sec) * 1000 +
+                       (t1.tv_nsec - t0.tv_nsec) / 1000000);
         n_faces = 0;
         /* rcsq layout: [y, x, size, quality] per detection */
         for (int i = 0; i < n && n_faces < MAX_FACES; i++)
@@ -371,8 +371,7 @@ struct cam_buf {
     size_t len;
 };
 
-/* enumerate the camera's formats/sizes; prefer YUYV (raw, no decode),
-   then MJPEG; pick the largest size that fits 640x480, else the largest */
+/* Prefer exact 640x480 modes, with YUYV ahead of MJPEG. */
 static int pick_format(int fd, uint32_t *pixelformat, int *w, int *h)
 {
     struct v4l2_fmtdesc f;
@@ -390,6 +389,29 @@ static int pick_format(int fd, uint32_t *pixelformat, int *w, int *h)
 
         if (is_yuyv || is_mjpeg)
         {
+            struct v4l2_format try_fmt;
+            memset(&try_fmt, 0, sizeof(try_fmt));
+            try_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            try_fmt.fmt.pix.width = 640;
+            try_fmt.fmt.pix.height = 480;
+            try_fmt.fmt.pix.pixelformat = f.pixelformat;
+            try_fmt.fmt.pix.field = V4L2_FIELD_ANY;
+            if (xioctl(fd, VIDIOC_TRY_FMT, &try_fmt) == 0 &&
+                try_fmt.fmt.pix.width == 640 &&
+                try_fmt.fmt.pix.height == 480 &&
+                try_fmt.fmt.pix.pixelformat == f.pixelformat)
+            {
+                long score = 0x50000000L +
+                             (is_yuyv ? 0x10000000L : 0) + 640L * 480;
+                if (score > best_score)
+                {
+                    best_score = score;
+                    best_fmt = f.pixelformat;
+                    best_w = 640;
+                    best_h = 480;
+                }
+            }
+
             memset(&fs, 0, sizeof(fs));
             fs.pixel_format = f.pixelformat;
             while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &fs) == 0)
@@ -398,8 +420,11 @@ static int pick_format(int fd, uint32_t *pixelformat, int *w, int *h)
                 {
                     long area = (long)fs.discrete.width *
                                 fs.discrete.height;
-                    long score = (area <= 640L * 480 ? 0x40000000L : 0) +
-                                 (is_yuyv ? 0x20000000L : 0) + area;
+                    int exact = fs.discrete.width == 640 &&
+                                fs.discrete.height == 480;
+                    long score = (exact ? 0x60000000L :
+                                  area <= 640L * 480 ? 0x40000000L : 0) +
+                                 (is_yuyv ? 0x10000000L : 0) + area;
 
                     if (score > best_score)
                     {
@@ -430,9 +455,14 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
     struct v4l2_requestbuffers req;
     uint32_t pixelformat;
     int cw, ch;
+    struct cam_buf *bufs = NULL;
+    int mapped = 0;
 
     if (fd < 0)
         return -1;
+    *bufs_out = NULL;
+    *nbufs_out = 0;
+    *cam_fd = -1;
     if (w) *w = 0;
     if (h) *h = 0;
     if (mjpeg) *mjpeg = 0;
@@ -440,6 +470,15 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
     if (pick_format(fd, &pixelformat, &cw, &ch) < 0)
     {
         fprintf(stderr, "uvc: no YUYV/MJPEG format on the camera\n");
+        quit_req = 1;
+        close(fd);
+        return -1;
+    }
+    if (cw != 640 || ch != 480)
+    {
+        fprintf(stderr, "uvc: detector requires 640x480; camera offers %dx%d; exiting\n",
+                cw, ch);
+        quit_req = 1;
         close(fd);
         return -1;
     }
@@ -451,9 +490,13 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
     fmt.fmt.pix.pixelformat = pixelformat;
     fmt.fmt.pix.field = V4L2_FIELD_ANY;
     if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
-        fmt.fmt.pix.pixelformat != pixelformat)
+        fmt.fmt.pix.pixelformat != pixelformat ||
+        fmt.fmt.pix.width != 640 || fmt.fmt.pix.height != 480 ||
+        (pixelformat == V4L2_PIX_FMT_YUYV &&
+         fmt.fmt.pix.bytesperline != 640 * 2))
     {
-        fprintf(stderr, "uvc: S_FMT rejected the picked format\n");
+        fprintf(stderr, "uvc: camera cannot provide the required 640x480 format/stride; exiting\n");
+        quit_req = 1;
         close(fd);
         return -1;
     }
@@ -475,7 +518,13 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
         return -1;
     }
 
-    struct cam_buf *bufs = calloc(req.count, sizeof(*bufs));
+    bufs = calloc(req.count, sizeof(*bufs));
+    if (!bufs)
+    {
+        perror("uvc: buffer allocation");
+        close(fd);
+        return -1;
+    }
     for (int i = 0; i < (int)req.count; i++)
     {
         struct v4l2_buffer b;
@@ -487,18 +536,18 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
         if (xioctl(fd, VIDIOC_QUERYBUF, &b) < 0)
         {
             perror("uvc: QUERYBUF");
-            close(fd);
-            return -1;
+            goto fail;
         }
-        bufs[i].len = b.length;
-        bufs[i].start = mmap(NULL, b.length, PROT_READ | PROT_WRITE,
-                             MAP_SHARED, fd, b.m.offset);
-        if (bufs[i].start == MAP_FAILED)
+        void *start = mmap(NULL, b.length, PROT_READ | PROT_WRITE,
+                           MAP_SHARED, fd, b.m.offset);
+        if (start == MAP_FAILED)
         {
             perror("uvc: mmap");
-            close(fd);
-            return -1;
+            goto fail;
         }
+        bufs[i].len = b.length;
+        bufs[i].start = start;
+        mapped++;
     }
     for (int i = 0; i < (int)req.count; i++)
     {
@@ -508,15 +557,18 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
         b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         b.memory = V4L2_MEMORY_MMAP;
         b.index = i;
-        xioctl(fd, VIDIOC_QBUF, &b);
+        if (xioctl(fd, VIDIOC_QBUF, &b) < 0)
+        {
+            perror("uvc: QBUF");
+            goto fail;
+        }
     }
 
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (xioctl(fd, VIDIOC_STREAMON, &type) < 0)
     {
         perror("uvc: STREAMON");
-        close(fd);
-        return -1;
+        goto fail;
     }
     printf("uvc: streaming on %s\n", dev);
 
@@ -524,6 +576,13 @@ static int cam_open(const char *dev, int *mjpeg, int *w, int *h,
     *nbufs_out = (int)req.count;
     *cam_fd = fd;
     return 0;
+
+fail:
+    for (int i = 0; i < mapped; i++)
+        munmap(bufs[i].start, bufs[i].len);
+    free(bufs);
+    close(fd);
+    return -1;
 }
 
 /* ---------------- MJPEG decode + color conversion ---------------- */
@@ -881,7 +940,13 @@ int main(int argc, char **argv)
                                           "16-bit (RGB565)");
     pthread_t det_tid;
 
-    pthread_create(&det_tid, NULL, det_thread, NULL);
+    int thread_err = pthread_create(&det_tid, NULL, det_thread, NULL);
+    if (thread_err != 0)
+    {
+        fprintf(stderr, "detector thread creation failed: %s\n",
+                strerror(thread_err));
+        return 1;
+    }
     printf("stage: face detector (pico cascade, embedded facefinder)\n");
 
     /* camera lifecycle: absent -> rescan every 2 s ("UVC NA" on screen);
@@ -929,6 +994,8 @@ int main(int argc, char **argv)
             if (cam_open(dev, &cam_mjpeg, &cam_w, &cam_h, &bufs, &nbufs,
                          &cam_fd) < 0)
             {
+                if (quit_req)
+                    break;
                 fprintf(stderr, "uvc: cam_open failed, rescanning\n");
                 free(dev);
                 dev = NULL;
@@ -1008,8 +1075,8 @@ int main(int argc, char **argv)
                 build_src_map(rgb_w, rgb_h);
             }
             convert_yuyv_frame(bufs[b.index].start, cam_w);
-            xioctl(cam_fd, VIDIOC_QBUF, &b);   /* re-queue! */
             det_publish(bufs[b.index].start, cam_w, cam_h, 1);
+            xioctl(cam_fd, VIDIOC_QBUF, &b);
         }
 
         /* face boxes: copy under lock, draw after the frame convert
@@ -1018,6 +1085,7 @@ int main(int argc, char **argv)
 
         pthread_mutex_lock(&det_lock);
         int nd = n_faces;
+        int det_snapshot_ms = det_ms;
         for (int i = 0; i < nd; i++)
             drawn[i] = faces[i];
         pthread_mutex_unlock(&det_lock);
@@ -1064,9 +1132,9 @@ int main(int argc, char **argv)
             frames = 0;
             t_end = now;
             snprintf(band, sizeof(band), "uh-%d %u fps %df %ums",
-                     uh < 0 ? 0 : uh, fps, n_faces, det_ms);
+                     uh < 0 ? 0 : uh, fps, nd, det_snapshot_ms);
             printf("fps: %u  det %d ms  faces %d  fb avg R=%lu G=%lu B=%lu (%s)\n",
-                   fps, det_ms, n_faces, rs / npix, gs / npix, bs / npix,
+                   fps, det_snapshot_ms, nd, rs / npix, gs / npix, bs / npix,
                    pix18 ? "6-bit/6-bit/6-bit" : "5-bit/6-bit/5-bit");
         }
     }
@@ -1078,8 +1146,8 @@ int main(int argc, char **argv)
     free(src_map);
     free(dev);
 
-    det_quit = 1;
     pthread_mutex_lock(&det_lock);
+    det_quit = 1;
     pthread_cond_signal(&det_cond);
     pthread_mutex_unlock(&det_lock);
     pthread_join(det_tid, NULL);

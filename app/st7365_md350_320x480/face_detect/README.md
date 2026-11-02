@@ -19,13 +19,16 @@ Same capture + panel stack as `app/st7365_md350_320x480/uvc_to_lcd`
 - Input: the 640x480 camera frame half-sampled to **320x240 BGR**
   (BT.601 limited-range, chroma centered - same math as the display
   path), built in the capture thread.
+- Requires the camera to negotiate exactly **640x480** in YUYV or
+  MJPEG; startup exits with an error if that mode is unavailable.
 
 ## Threading
 
 Detection runs on its own pthread (~430 ms per pass on the H3) while
 the capture/blit loop keeps streaming at 15-16 fps. A mutex +
 condvar handshake (`det_pending`) guarantees the detector always
-works on a stable sample; boxes are published under the same lock
+works on a stable sample; V4L2 buffers stay dequeued until the private
+detector sample is copied. Boxes and telemetry are published under the same lock
 and drawn every frame (2 px green frame, mapped back through the
 90-degree rotation/scale/letterbox map), so tracking stays smooth
 between detections.

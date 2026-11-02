@@ -14,6 +14,8 @@ inference framework, NEON, no runtime deps).
   guard `__ARM_FP & 2` must be neutralized on Cortex-A7 which lacks
   FP16 - see tools/armv7-toolchain-gcc12.cmake)
 - `yolo_shim.cpp` wraps the C++ API for the C app
+- requires exactly **640x480** YUYV or MJPEG; exits if the camera
+  cannot negotiate that mode
 - 320x240 BGR sample (BT.601) -> ncnn resize to 320x320 -> boxes
   (already NMS'd by the model graph), score threshold 0.35
 - detector pthread: measured **~280 ms per pass** on the H3 while

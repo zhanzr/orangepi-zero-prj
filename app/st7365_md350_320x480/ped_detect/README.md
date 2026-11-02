@@ -7,6 +7,8 @@ OpenCV, no model download).
 
 - same capture/panel stack as the other uvc_* apps (RGB565 default,
   `-6` for RGB666, auto camera lifecycle, `uh-N` + fps band)
+- requires exactly YUYV 640x480; exits if the camera cannot negotiate
+  that mode
 - 320x240 luma sample -> detector pthread (video keeps streaming at
   15 fps); green 2 px boxes mapped through the panel rotation
 - band OSD: `uh-N <fps> fps <n>p <det>ms`

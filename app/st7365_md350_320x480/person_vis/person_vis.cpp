@@ -247,13 +247,14 @@ static void det_publish(const uint8_t *yuyv, int cw, int ch)
 static void *det_thread(void *arg)
 {
     (void)arg;
-    while (!det_quit)
+    for (;;)
     {
         pthread_mutex_lock(&det_lock);
         while (!det_pending && !det_quit)
             pthread_cond_wait(&det_cond, &det_lock);
+        int quit = det_quit;
         pthread_mutex_unlock(&det_lock);
-        if (det_quit) break;
+        if (quit) break;
 
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -295,10 +296,10 @@ static void *det_thread(void *arg)
             if (pct > 100) pct = 100;
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        det_ms = (int)((t1.tv_sec - t0.tv_sec) * 1000 +
-                       (t1.tv_nsec - t0.tv_nsec) / 1000000);
 
         pthread_mutex_lock(&det_lock);
+        det_ms = (int)((t1.tv_sec - t0.tv_sec) * 1000 +
+                       (t1.tv_nsec - t0.tv_nsec) / 1000000);
         person_pct = pct;
         n_peds = 1;   /* reuse the band counter as "verdict ready" */
         det_pending = 0;
@@ -400,16 +401,38 @@ static char *find_uvc(int *uh)
 static int cam_open(char *dev, int *w, int *h,
                     struct cam_buf **obufs, int *onbufs, int *fd)
 {
-    *fd = open(dev, O_RDWR);
-    if (*fd < 0) return -1;
+    *obufs = NULL;
+    *onbufs = 0;
+    *fd = -1;
+    int cam_fd = open(dev, O_RDWR);
+    if (cam_fd < 0) return -1;
+    struct cam_buf *bufs = NULL;
+    int mapped = 0;
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     struct v4l2_format fmt;
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    xioctl(*fd, VIDIOC_G_FMT, &fmt);
+    xioctl(cam_fd, VIDIOC_G_FMT, &fmt);
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
     fmt.fmt.pix.width = 640;
     fmt.fmt.pix.height = 480;
-    if (xioctl(*fd, VIDIOC_S_FMT, &fmt) != 0) { close(*fd); return -1; }
+    if (xioctl(cam_fd, VIDIOC_S_FMT, &fmt) != 0)
+    {
+        perror("uvc: S_FMT");
+        quit_req = 1;
+        close(cam_fd);
+        return -1;
+    }
+    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV ||
+        fmt.fmt.pix.width != 640 || fmt.fmt.pix.height != 480 ||
+        fmt.fmt.pix.bytesperline != 640 * 2)
+    {
+        fprintf(stderr, "uvc: detector requires 640x480 YUYV; camera negotiated %ux%u format 0x%08x; exiting\n",
+                fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.pixelformat);
+        quit_req = 1;
+        close(cam_fd);
+        return -1;
+    }
     *w = fmt.fmt.pix.width;
     *h = fmt.fmt.pix.height;
     printf("uvc: %s at %dx%d YUYV\n", dev, *w, *h);
@@ -419,8 +442,19 @@ static int cam_open(char *dev, int *w, int *h,
     req.count = 4;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
-    if (xioctl(*fd, VIDIOC_REQBUFS, &req) < 0) { close(*fd); return -1; }
-    *obufs = (struct cam_buf *)calloc(req.count, sizeof(struct cam_buf));
+    if (xioctl(cam_fd, VIDIOC_REQBUFS, &req) < 0 || req.count < 2)
+    {
+        perror("uvc: REQBUFS");
+        close(cam_fd);
+        return -1;
+    }
+    bufs = (struct cam_buf *)calloc(req.count, sizeof(struct cam_buf));
+    if (!bufs)
+    {
+        perror("uvc: buffer allocation");
+        close(cam_fd);
+        return -1;
+    }
     for (int i = 0; i < (int)req.count; i++)
     {
         struct v4l2_buffer b;
@@ -428,25 +462,52 @@ static int cam_open(char *dev, int *w, int *h,
         b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         b.memory = V4L2_MEMORY_MMAP;
         b.index = i;
-        xioctl(*fd, VIDIOC_QUERYBUF, &b);
-        (*obufs)[i].len = b.length;
-        (*obufs)[i].start = mmap(NULL, b.length, PROT_READ | PROT_WRITE,
-                                 MAP_SHARED, *fd, b.m.offset);
+        if (xioctl(cam_fd, VIDIOC_QUERYBUF, &b) < 0)
+        {
+            perror("uvc: QUERYBUF");
+            goto fail;
+        }
+        void *start = mmap(NULL, b.length, PROT_READ | PROT_WRITE,
+                           MAP_SHARED, cam_fd, b.m.offset);
+        if (start == MAP_FAILED)
+        {
+            perror("uvc: mmap");
+            goto fail;
+        }
+        bufs[i].len = b.length;
+        bufs[i].start = start;
+        mapped++;
     }
-    *onbufs = req.count;
-    for (int i = 0; i < *onbufs; i++)
+    for (int i = 0; i < (int)req.count; i++)
     {
         struct v4l2_buffer b;
         memset(&b, 0, sizeof(b));
         b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         b.memory = V4L2_MEMORY_MMAP;
         b.index = i;
-        xioctl(*fd, VIDIOC_QBUF, &b);
+        if (xioctl(cam_fd, VIDIOC_QBUF, &b) < 0)
+        {
+            perror("uvc: QBUF");
+            goto fail;
+        }
     }
-    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    xioctl(*fd, VIDIOC_STREAMON, &type);
+    if (xioctl(cam_fd, VIDIOC_STREAMON, &type) < 0)
+    {
+        perror("uvc: STREAMON");
+        goto fail;
+    }
+    *obufs = bufs;
+    *onbufs = (int)req.count;
+    *fd = cam_fd;
     printf("uvc: streaming on %s\n", dev);
     return 0;
+
+fail:
+    for (int i = 0; i < mapped; i++)
+        munmap(bufs[i].start, bufs[i].len);
+    free(bufs);
+    close(cam_fd);
+    return -1;
 }
 
 static void cam_release(int *fd, struct cam_buf **bufs, int *nbufs)
@@ -523,7 +584,13 @@ int main(int argc, char **argv)
     }
 
     pthread_t det_tid;
-    pthread_create(&det_tid, NULL, det_thread, NULL);
+    int thread_err = pthread_create(&det_tid, NULL, det_thread, NULL);
+    if (thread_err != 0)
+    {
+        fprintf(stderr, "detector thread creation failed: %s\n",
+                strerror(thread_err));
+        return 1;
+    }
 
     char *dev = NULL;
     int uh = -1;
@@ -559,6 +626,8 @@ int main(int argc, char **argv)
         if (cam_fd < 0 &&
             cam_open(dev, &cam_w, &cam_h, &bufs, &nbufs, &cam_fd) < 0)
         {
+            if (quit_req)
+                break;
             fprintf(stderr, "uvc: cam_open failed, rescanning\n");
             free(dev);
             dev = NULL;
@@ -637,27 +706,29 @@ int main(int argc, char **argv)
         struct det_box drawn[MAX_PEDS];
         pthread_mutex_lock(&det_lock);
         int nd = n_peds;
+        int result_pct = person_pct;
+        int result_ms = det_ms;
         for (int i = 0; i < nd; i++)
             drawn[i] = peds[i];
         pthread_mutex_unlock(&det_lock);
         (void)drawn;
 
         /* verdict text over the live view */
-        if (person_pct >= 0)
+        if (result_pct >= 0)
         {
             char verdict[24];
 
-            if (person_pct >= 60)
-                snprintf(verdict, sizeof(verdict), "PERSON %d%%", person_pct);
-            else if (person_pct >= 0)
+            if (result_pct >= 60)
+                snprintf(verdict, sizeof(verdict), "PERSON %d%%", result_pct);
+            else if (result_pct >= 0)
                 snprintf(verdict, sizeof(verdict), "no person %d%%",
-                         person_pct);
+                         result_pct);
             fb_string_t(verdict, 4, 4, LCD_WHITE);
         }
 
         char band[40];
         snprintf(band, sizeof(band), "uh-%d %u fps %d%% %ums",
-                 uh < 0 ? 0 : uh, fps, person_pct, det_ms);
+                 uh < 0 ? 0 : uh, fps, result_pct, result_ms);
         fb_string_t(band, 4, PANEL_H - FPS_BAND + 4, LCD_WHITE);
         blit();
         frames++;
@@ -669,8 +740,8 @@ int main(int argc, char **argv)
             fps = frames;
             frames = 0;
             t_end = now;
-            printf("fps: %u  det %d ms  person %d%%\n", fps, det_ms,
-                   person_pct);
+            printf("fps: %u  det %d ms  person %d%%\n", fps, result_ms,
+                   result_pct);
         }
 
         xioctl(cam_fd, VIDIOC_QBUF, &b);
@@ -679,8 +750,8 @@ int main(int argc, char **argv)
     if (cam_fd >= 0)
         cam_release(&cam_fd, &bufs, &nbufs);
     free(src_map);
-    det_quit = 1;
     pthread_mutex_lock(&det_lock);
+    det_quit = 1;
     pthread_cond_signal(&det_cond);
     pthread_mutex_unlock(&det_lock);
     pthread_join(det_tid, NULL);

@@ -31,6 +31,11 @@ two interpreters, two arenas (pre 8.5 KB, speech 6.8 KB).
 - MD350 panel over SPI1 (RGB565 default; pass `-6` for RGB666)
 - 1 s ring buffer (capture pthread) -> main loop re-runs feature
   extraction + speech model ~2x per second
+- startup waits for ALSA initialization and fails explicitly if capture
+  cannot provide exactly 16 kHz; inference starts only after the ring
+  contains a full second of audio
+- nonblocking capture lets shutdown complete promptly; recoverable ALSA
+  read errors are recovered, and unrecoverable ones stop the app clearly
 
 ## Panel output
 

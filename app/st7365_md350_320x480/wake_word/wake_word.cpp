@@ -177,52 +177,127 @@ static int16_t ring[kWinSamples];
 static size_t ring_pos = 0;              /* next write index */
 static size_t ring_filled = 0;           /* samples written since reset */
 static pthread_mutex_t ring_lock = PTHREAD_MUTEX_INITIALIZER;
-static int cap_failed = 0;
+enum cap_state { CAP_STARTING, CAP_READY, CAP_FAILED, CAP_STOPPED };
+static cap_state capture_state = CAP_STARTING;
+static pthread_mutex_t cap_state_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cap_state_cond = PTHREAD_COND_INITIALIZER;
 static const char *cap_dev = "default";
+
+static void set_capture_state(cap_state state)
+{
+    pthread_mutex_lock(&cap_state_lock);
+    capture_state = state;
+    pthread_cond_broadcast(&cap_state_cond);
+    pthread_mutex_unlock(&cap_state_lock);
+}
+
+static cap_state get_capture_state(void)
+{
+    pthread_mutex_lock(&cap_state_lock);
+    cap_state state = capture_state;
+    pthread_mutex_unlock(&cap_state_lock);
+    return state;
+}
 
 static void *cap_thread(void *arg)
 {
     (void)arg;
     snd_pcm_t *pcm = NULL;
-    int err = snd_pcm_open(&pcm, cap_dev, SND_PCM_STREAM_CAPTURE, 0);
+    int err = snd_pcm_open(&pcm, cap_dev, SND_PCM_STREAM_CAPTURE,
+                           SND_PCM_NONBLOCK);
     if (err < 0)
     {
         fprintf(stderr, "alsa open failed: %s\n", snd_strerror(err));
-        cap_failed = 1;
+        set_capture_state(CAP_FAILED);
         return NULL;
     }
-    snd_pcm_hw_params_t *hw;
-    snd_pcm_hw_params_malloc(&hw);
-    snd_pcm_hw_params_any(pcm, hw);
-    err = snd_pcm_hw_params_set_access(pcm, hw, SND_PCM_ACCESS_RW_INTERLEAVED);
-    err |= snd_pcm_hw_params_set_format(pcm, hw, SND_PCM_FORMAT_S16_LE);
-    err |= snd_pcm_hw_params_set_channels(pcm, hw, 1);
-    unsigned real_rate = kAudioSampleFrequency;
-    err |= snd_pcm_hw_params_set_rate_near(pcm, hw, &real_rate, 0);
-    snd_pcm_uframes_t period = 320;      /* 20 ms */
-    snd_pcm_hw_params_set_period_size_near(pcm, hw, &period, 0);
-    if (err < 0 || snd_pcm_hw_params(pcm, hw) < 0)
+
+    snd_pcm_hw_params_t *hw = NULL;
+    err = snd_pcm_hw_params_malloc(&hw);
+    if (err < 0)
     {
-        fprintf(stderr, "alsa hw params failed\n");
-        snd_pcm_hw_params_free(hw);
-        cap_failed = 1;
+        fprintf(stderr, "alsa hw params allocation failed: %s\n",
+                snd_strerror(err));
+        snd_pcm_close(pcm);
+        set_capture_state(CAP_FAILED);
         return NULL;
     }
+
+    err = snd_pcm_hw_params_any(pcm, hw);
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_access(pcm, hw,
+                                           SND_PCM_ACCESS_RW_INTERLEAVED);
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_format(pcm, hw, SND_PCM_FORMAT_S16_LE);
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_channels(pcm, hw, 1);
+    unsigned real_rate = kAudioSampleFrequency;
+    int rate_dir = 0;
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_rate_near(pcm, hw, &real_rate, &rate_dir);
+    snd_pcm_uframes_t period = 320;      /* 20 ms */
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_period_size_near(pcm, hw, &period, 0);
+    if (err >= 0)
+        err = snd_pcm_hw_params(pcm, hw);
+    if (err < 0)
+    {
+        fprintf(stderr, "alsa hw params failed: %s\n", snd_strerror(err));
+        snd_pcm_hw_params_free(hw);
+        snd_pcm_close(pcm);
+        set_capture_state(CAP_FAILED);
+        return NULL;
+    }
+    err = snd_pcm_hw_params_get_rate(hw, &real_rate, &rate_dir);
     snd_pcm_hw_params_free(hw);
-    snd_pcm_prepare(pcm);
+    if (err < 0 || real_rate != kAudioSampleFrequency)
+    {
+        fprintf(stderr, "alsa requires %d Hz; device negotiated %u Hz\n",
+                kAudioSampleFrequency, real_rate);
+        snd_pcm_close(pcm);
+        set_capture_state(CAP_FAILED);
+        return NULL;
+    }
+    err = snd_pcm_prepare(pcm);
+    if (err < 0)
+    {
+        fprintf(stderr, "alsa prepare failed: %s\n", snd_strerror(err));
+        snd_pcm_close(pcm);
+        set_capture_state(CAP_FAILED);
+        return NULL;
+    }
     printf("alsa: capturing %u Hz mono (wanted %d)\n",
-           (unsigned)real_rate, kAudioSampleFrequency);
+           real_rate, kAudioSampleFrequency);
+    set_capture_state(CAP_READY);
 
     static int16_t chunk[320];
     while (!quit_req)
     {
         long n = snd_pcm_readi(pcm, chunk, 320);
-        if (n == -EPIPE)
+        if (n == -EAGAIN || n == 0)
         {
-            snd_pcm_prepare(pcm);
+            err = snd_pcm_wait(pcm, 100);
+            if (err < 0 && snd_pcm_recover(pcm, err, 1) < 0)
+            {
+                fprintf(stderr, "alsa wait recovery failed: %s\n",
+                        snd_strerror(err));
+                set_capture_state(CAP_FAILED);
+                break;
+            }
             continue;
         }
-        if (n < 0) continue;
+        if (n < 0)
+        {
+            err = snd_pcm_recover(pcm, (int)n, 1);
+            if (err < 0)
+            {
+                fprintf(stderr, "alsa read recovery failed: %s\n",
+                        snd_strerror(err));
+                set_capture_state(CAP_FAILED);
+                break;
+            }
+            continue;
+        }
         pthread_mutex_lock(&ring_lock);
         for (long i = 0; i < n; i++)
         {
@@ -233,18 +308,23 @@ static void *cap_thread(void *arg)
         pthread_mutex_unlock(&ring_lock);
     }
     snd_pcm_close(pcm);
+    if (get_capture_state() != CAP_FAILED)
+        set_capture_state(CAP_STOPPED);
     return NULL;
 }
 
-static void ring_snapshot(int16_t *out)   /* ordered oldest -> newest */
+static bool ring_snapshot(int16_t *out)   /* ordered oldest -> newest */
 {
     pthread_mutex_lock(&ring_lock);
-    size_t start = (ring_filled < kWinSamples)
-                       ? 0
-                       : ring_pos;       /* oldest when full */
-    for (int i = 0; i < kWinSamples; i++)
-        out[i] = ring[(start + i) % kWinSamples];
+    bool full = ring_filled == kWinSamples;
+    size_t start = full ? ring_pos : 0;
+    if (full)
+    {
+        for (int i = 0; i < kWinSamples; i++)
+            out[i] = ring[(start + i) % kWinSamples];
+    }
     pthread_mutex_unlock(&ring_lock);
+    return full;
 }
 
 /* ---- TFLM ---- */
@@ -430,16 +510,32 @@ int main(int argc, char **argv)
 
     /* the H3 codec ships with the capture route disabled -> all-zero
        audio forever; enable Mic1/Mic2 capture + gain first */
-    if (system("amixer -c 0 sset 'Mic1',0 100%,100% cap > /dev/null 2>&1; "
-               "amixer -c 0 sset 'Mic2',0 100%,100% cap > /dev/null 2>&1") == 0)
+    int route_status =
+        system("amixer -c 0 sset 'Mic1',0 100%,100% cap > /dev/null 2>&1; "
+               "amixer -c 0 sset 'Mic2',0 100%,100% cap > /dev/null 2>&1");
+    if (route_status == 0)
         printf("alsa: Mic1/Mic2 capture routes enabled\n");
+    else
+        fprintf(stderr, "alsa: could not enable codec capture routes (status %d)\n",
+                route_status);
 
     pthread_t cap_tid;
-    pthread_create(&cap_tid, NULL, cap_thread, NULL);
-
-    if (cap_failed)
+    int thread_err = pthread_create(&cap_tid, NULL, cap_thread, NULL);
+    if (thread_err != 0)
     {
-        fprintf(stderr, "alsa capture failed\n");
+        fprintf(stderr, "alsa capture thread creation failed: %s\n",
+                strerror(thread_err));
+        return 1;
+    }
+    pthread_mutex_lock(&cap_state_lock);
+    while (capture_state == CAP_STARTING && !quit_req)
+        pthread_cond_wait(&cap_state_cond, &cap_state_lock);
+    cap_state state = capture_state;
+    pthread_mutex_unlock(&cap_state_lock);
+    if (state != CAP_READY)
+    {
+        fprintf(stderr, "alsa capture failed during startup\n");
+        pthread_join(cap_tid, NULL);
         return 1;
     }
     printf("wake_word: listening (say YES or NO)\n");
@@ -450,7 +546,14 @@ int main(int argc, char **argv)
     while (!quit_req)
     {
         usleep(500 * 1000);   /* ~2 verdicts/s */
-        ring_snapshot(window);
+        state = get_capture_state();
+        if (state == CAP_FAILED)
+        {
+            fprintf(stderr, "alsa capture stopped after an unrecoverable error\n");
+            break;
+        }
+        if (!ring_snapshot(window))
+            continue;
 
         if (!generate_features(window))
         {
@@ -493,6 +596,7 @@ int main(int argc, char **argv)
                kCategoryLabels[best]);
     }
 
+    quit_req = 1;
     pthread_join(cap_tid, NULL);
     memset(panel_fb, 0, sizeof(panel_fb));
     if (pix18) memset(panel_666, 0, sizeof(panel_666));

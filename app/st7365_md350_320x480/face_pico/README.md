@@ -11,6 +11,8 @@ per pass at some accuracy cost.
 
 - same capture/panel stack (RGB565 default, `-6` for RGB666, auto
   camera lifecycle, `UVC NA` + rescan)
+- requires exactly **640x480** YUYV or MJPEG; exits if the camera
+  cannot negotiate that mode
 - 320x240 luma sample -> detector thread; measured **5-25 ms per
   pass** on the H3 (video unaffected at 15-16 fps)
 - boxes mapped through the 90-degree rotation/scale/letterbox map,

@@ -18,7 +18,8 @@ ST7365P 3.5" 320x480 (MD350) SPI panel, Orange Pi Zero.
 
 ## Board features used
 
-- UVC camera (YUYV 640x480) via V4L2 MMAP, auto lifecycle
+- UVC camera (exactly YUYV 640x480) via V4L2 MMAP; exits if the
+  camera cannot negotiate that mode
 - MD350 panel over SPI1 (RGB565 default; pass `-6` for RGB666)
 
 Run `./person_vis [-6]` to select RGB666.
