@@ -36,3 +36,7 @@ Thumbs.db
 /app/st7789_md169_240x280_spi/qr_scan/qr_scan.o
 /app/st7789_md169_240x280_spi/lcm_test/lcm_test
 /app/st7789_md169_240x280_spi/lcm_test/st7789_demo
+/app/st7365_md350_320x480/lcm_test/lcm_test
+/app/st7365_md350_320x480/whiteband_test/whiteband_test
+/app/st7365_md350_320x480/uvc_to_lcd/uvc_to_lcd
+/app/st7365_md350_320x480/uvc_to_lcd/top48_debug.png
