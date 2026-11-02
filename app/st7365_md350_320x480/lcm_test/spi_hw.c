@@ -1,5 +1,5 @@
 /*
-  spi_hw.c - hardware SPI transport via /dev/spidev1.0 for the ST7789
+  spi_hw.c - hardware SPI transport via /dev/spidev1.0 for the panel
   4-wire panel. CS is hardware (spidev toggles it per write()); DC and
   RES are GPIO chardev lines set before each transfer.
 */
@@ -128,7 +128,7 @@ void spi_write_byte(uint8_t b)
         perror("spi write");
 }
 
-/* the ST7789 wants each RGB565 word high-byte first, but the uint16
+/* the panel wants each RGB565 word high-byte first, but the uint16
    buffers hold host (little-endian) order - swap into a staging buffer */
 void spi_write_pixels16(const uint16_t *px, size_t count)
 {

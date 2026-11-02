@@ -1,5 +1,5 @@
 /*
-  spi_hw.h - hardware SPI transport (/dev/spidev1.0) for the ST7789
+  spi_hw.h - hardware SPI transport (/dev/spidev1.0) for the panel
   4-wire panel: DC/RES/CS as GPIO lines, data over spidev.
 
   Default wiring (CON4 layout, Orange Pi Zero):
@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-int  spi_open(unsigned speed_hz);   /* opens /dev/spidev1.0, SPI mode 0 (MD169 wants mode 0) */
+int  spi_open(unsigned speed_hz);   /* opens /dev/spidev1.0, SPI mode 0 (panel wants mode 0) */
 void spi_close(void);
 void spi_res_open(int gpio);        /* RES gpio (default 49) */
 void spi_res_set(int on);

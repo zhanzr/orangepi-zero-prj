@@ -40,3 +40,10 @@ Thumbs.db
 /app/st7365_md350_320x480/whiteband_test/whiteband_test
 /app/st7365_md350_320x480/uvc_to_lcd/uvc_to_lcd
 /app/st7365_md350_320x480/uvc_to_lcd/top48_debug.png
+/app/st7365_md350_320x480/face_detect/face_detect
+/app/st7365_md350_320x480/face_pico/face_pico
+/app/st7365_md350_320x480/object_detect/object_detect
+/app/st7365_md350_320x480/person_vis/person_vis
+/app/st7365_md350_320x480/ped_detect/ped_detect
+/app/st7365_md350_320x480/qr_scan/qr_scan
+/app/st7365_md350_320x480/wake_word/wake_word

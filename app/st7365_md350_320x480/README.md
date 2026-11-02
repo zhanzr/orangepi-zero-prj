@@ -24,6 +24,19 @@ Panel notes (verified on this module):
   default; pass `-6` for RGB666.
 - `whiteband_test/` — write-path isolator for the top strip
   (rows 0..27): cycles black+text / white / black
+- `face_detect/` — UVC camera face detection, libfacedetection CNN
+  (NEON) on a detector thread, live boxes; ~15 fps video
+- `face_pico/` — same, with the pico cascade (lighter, ~7 ms/pass)
+- `object_detect/` — 80-class COCO detection, Yolo-Fastest v1.1 on
+  ncnn (NEON), live boxes + labels
+- `person_vis/` — "is a person visible?", MLPerf-Tiny model on TFLM,
+  big PERSON / NO PERSON verdict over the live view
+- `ped_detect/` — pedestrian detection, OpenCV HOG (board-native
+  build: `make board`)
+- `qr_scan/` — QR/barcode reader, zbar (board-native build:
+  `make board`); decoded text over the live view
+- `wake_word/` — "yes/no" keyword spotting, TFLM + ALSA mic
+  (audio-only; shows verdicts + rolling scores on the panel)
 
-`lcm_test` and `whiteband_test` use RGB565 only; `-6` is available on
-`uvc_to_lcd`, which has both pixel-format paths.
+All camera apps use RGB565 by default; `-6` selects RGB666.
+`lcm_test` and `whiteband_test` are RGB565-only.
